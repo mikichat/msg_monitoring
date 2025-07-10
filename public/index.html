@@ -1,161 +1,475 @@
-
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>메신저 서비스 모니터링</title>
-  <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background: linear-gradient(135deg, #1e1e1e, #2d2d2d);
-            color: #e0e0e0;
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>메신저 서비스 모니터링</title>
+    <style>
+        * {
             margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
             padding: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            color: #333;
         }
-        h1 {
-            font-size: 2.5rem;
-            font-weight: 300;
-            text-align: center;
-            margin-bottom: 40px;
-            text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
-        }
+
         .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="20" cy="20" r="1" fill="%23ffffff" opacity="0.1"/><circle cx="80" cy="40" r="1" fill="%23ffffff" opacity="0.1"/><circle cx="40" cy="80" r="1" fill="%23ffffff" opacity="0.1"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
+            animation: float 20s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateX(0px) translateY(0px); }
+            50% { transform: translateX(-20px) translateY(-10px); }
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .header .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            position: relative;
+            z-index: 1;
+        }
+
+        .status-indicator {
+            background: linear-gradient(135deg, #27ae60, #2ecc71);
+            color: white;
+            padding: 15px 20px;
+            margin: 20px;
+            border-radius: 16px;
+            font-weight: 600;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(39, 174, 96, 0.3);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .status-indicator.disconnected {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+            box-shadow: 0 8px 32px rgba(231, 76, 60, 0.3);
+        }
+
+        .status-indicator.connecting {
+            background: linear-gradient(135deg, #feca57, #ff9ff3);
+            color: #2c2c2c;
+            box-shadow: 0 8px 32px rgba(254, 202, 87, 0.3);
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-            gap: 20px;
-            width: 100%;
-            max-width: 1200px;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
         }
+
         .card {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 15px;
-            padding: 20px;
-            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(5px);
-            -webkit-backdrop-filter: blur(5px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            transition: transform 0.3s ease;
+            background: white;
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
         }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+            transition: left 0.5s;
+        }
+
+        .card:hover::before {
+            left: 100%;
+        }
+
         .card:hover {
             transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
         }
-        .card h2 {
-            margin-top: 0;
-            font-size: 1.5rem;
-            color: #00ffff;
-            border-bottom: 1px solid #00ffff40;
-            padding-bottom: 10px;
+
+        .card-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-bottom: 15px;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
-        table {
+
+        .icon {
+            width: 24px;
+            height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-size: 14px;
+        }
+
+        .icon.server { background: #ff6b6b; color: white; }
+        .icon.memory { background: #4ecdc4; color: white; }
+        .icon.network { background: #45b7d1; color: white; }
+        .icon.connections { background: #96ceb4; color: white; }
+
+        .data-table {
             width: 100%;
             border-collapse: collapse;
+            margin-top: 10px;
         }
-        th, td {
-            padding: 10px;
+
+        .data-table th,
+        .data-table td {
+            padding: 12px 15px;
             text-align: left;
-            border-bottom: 1px solid #ffffff20;
+            border-bottom: 1px solid #f0f0f0;
+            transition: all 0.3s ease;
         }
-        th {
-            color: #00ffff;
+
+        .data-table th {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            font-weight: 600;
+        }
+
+        .data-table tr:hover td {
+            background: #f8f9ff;
+            transform: scale(1.01);
+        }
+
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .metric:last-child {
+            border-bottom: none;
+        }
+
+        .metric-value {
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: #2c3e50;
+        }
+
+        .heap-display {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            color: #2c3e50;
+            white-space: pre-wrap;
+            overflow-x: auto;
+        }
+
+        .footer {
+            background: #2c3e50;
+            color: white;
+            text-align: center;
+            padding: 20px;
+            margin-top: 0;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .connection-summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .connection-summary-table th {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        .connection-summary-table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #f0f0f0;
+            transition: all 0.3s ease;
+        }
+
+        .connection-summary-table tr:hover td {
+            background: #f8f9ff;
+            transform: scale(1.01);
+        }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .container {
+                margin: 10px;
+                border-radius: 16px;
+            }
+        }
+
+        .animate-in {
+            animation: slideInUp 0.6s ease-out forwards;
+        }
+
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
     </style>
 </head>
 <body>
-  <h1>메신저 서비스 모니터링</h1>
-  <div class="container">
-    <div class="card">
-        <h2>Server Info</h2>
-        <div id="serverInfo">Connecting...</div>
+    <div class="container">
+        <div class="header">
+            <h1>📊 메신저 서비스 모니터링</h1>
+            <div class="subtitle">실시간 서버 상태 및 성능 분석</div>
+        </div>
+
+        <div class="status-indicator connecting" id="connectionStatus">
+            <div class="loading"></div>
+            <span style="margin-left: 10px;">서버 연결 중...</span>
+        </div>
+
+        <div class="content">
+            <div class="grid">
+                <div class="card animate-in">
+                    <div class="card-title">
+                        <span class="icon server">🖥️</span>
+                        Server Info
+                    </div>
+                    <div id="serverInfo">
+                        <div class="loading"></div>
+                        <span style="margin-left: 10px;">데이터 로딩 중...</span>
+                    </div>
+                </div>
+
+                <div class="card animate-in">
+                    <div class="card-title">
+                        <span class="icon memory">💾</span>
+                        Heap Usage
+                    </div>
+                    <div id="heapUsage">
+                        <div class="loading"></div>
+                        <span style="margin-left: 10px;">데이터 로딩 중...</span>
+                    </div>
+                </div>
+
+                <div class="card animate-in">
+                    <div class="card-title">
+                        <span class="icon network">🌐</span>
+                        Network Status
+                    </div>
+                    <div id="networkStatus">
+                        <div class="loading"></div>
+                        <span style="margin-left: 10px;">데이터 로딩 중...</span>
+                    </div>
+                </div>
+
+                <div class="card animate-in">
+                    <div class="card-title">
+                        <span class="icon connections">📈</span>
+                        Connection Summary
+                    </div>
+                    <div id="connectionSummary">
+                        <div class="loading"></div>
+                        <span style="margin-left: 10px;">데이터 로딩 중...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>🔄 실시간 데이터 업데이트 중 | 메신저 서비스 모니터링 시스템</p>
+        </div>
     </div>
-    <div class="card">
-        <h2>Heap Usage</h2>
-        <div id="heapUsage">Connecting...</div>
-    </div>
-    <div class="card">
-        <h2>Network Status</h2>
-        <div id="networkStatus">Connecting...</div>
-    </div>
-    <div class="card">
-        <h2>Connection Summary</h2>
-        <div id="connectionSummary">Connecting...</div>
-    </div>
-  </div>
 
-  <script>
-    const serverInfoEl = document.getElementById('serverInfo');
-    const heapUsageEl = document.getElementById('heapUsage');
-    const networkStatusEl = document.getElementById('networkStatus');
-    const connectionSummaryEl = document.getElementById('connectionSummary');
+    <script>
+        const serverInfoEl = document.getElementById('serverInfo');
+        const heapUsageEl = document.getElementById('heapUsage');
+        const networkStatusEl = document.getElementById('networkStatus');
+        const connectionSummaryEl = document.getElementById('connectionSummary');
+        const connectionStatusEl = document.getElementById('connectionStatus');
 
-    const ws = new WebSocket(`ws://${location.host}`);
+        const ws = new WebSocket(`ws://${location.host}`);
 
-    ws.onopen = () => {
-        console.log('Connected to WebSocket server');
-        [serverInfoEl, heapUsageEl, networkStatusEl, connectionSummaryEl].forEach(el => {
-            el.textContent = 'Connection established. Waiting for data...';
-        });
-    };
+        ws.onopen = () => {
+            console.log('Connected to WebSocket server');
+            connectionStatusEl.className = 'status-indicator';
+            connectionStatusEl.innerHTML = '<strong>🟢 연결됨:</strong> 실시간 데이터 수신 중';
+        };
 
-    ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
 
-        if (data.error) {
+            if (data.error) {
+                [serverInfoEl, heapUsageEl, networkStatusEl, connectionSummaryEl].forEach(el => {
+                    el.innerHTML = `<p style="color: #e74c3c; font-weight: 600;">❌ ${data.error}</p>`;
+                });
+                return;
+            }
+
+            // Server Info
+            serverInfoEl.innerHTML = `
+                <div class="metric">
+                    <span>타임스탬프</span>
+                    <span class="metric-value">${data.timestamp}</span>
+                </div>
+                <div class="metric">
+                    <span>PID</span>
+                    <span class="metric-value">${data.pid}</span>
+                </div>
+                <div class="metric">
+                    <span>스레드 수</span>
+                    <span class="metric-value">${data.threadCount}</span>
+                </div>`;
+
+            // Heap Usage
+            heapUsageEl.innerHTML = `<div class="heap-display">${data.heapUsage}</div>`;
+
+            // Network Status
+            networkStatusEl.innerHTML = `
+                <div class="metric">
+                    <span>Established</span>
+                    <span class="metric-value">${data.networkStatus.estab}</span>
+                </div>
+                <div class="metric">
+                    <span>Closed</span>
+                    <span class="metric-value">${data.networkStatus.closed}</span>
+                </div>
+                <div class="metric">
+                    <span>Orphaned</span>
+                    <span class="metric-value">${data.networkStatus.orphaned}</span>
+                </div>
+                <div class="metric">
+                    <span>Time Wait</span>
+                    <span class="metric-value">${data.networkStatus.timewait}</span>
+                </div>`;
+
+            // Connection Summary
+            let summaryHtml = '<table class="connection-summary-table"><thead><tr><th>IP Address</th><th>Count</th></tr></thead><tbody>';
+            if (data.connectionSummary && data.connectionSummary.length > 0) {
+                data.connectionSummary.forEach(item => {
+                    summaryHtml += `<tr><td>${item.ip}</td><td>${item.count}</td></tr>`;
+                });
+            } else {
+                summaryHtml += '<tr><td colspan="2" style="text-align: center; color: #7f8c8d;">연결 데이터가 없습니다.</td></tr>';
+            }
+            summaryHtml += '</tbody></table>';
+            connectionSummaryEl.innerHTML = summaryHtml;
+        };
+
+        ws.onclose = () => {
+            console.log('Disconnected from WebSocket server');
+            connectionStatusEl.className = 'status-indicator disconnected';
+            connectionStatusEl.innerHTML = '<strong>🔴 연결 끊김:</strong> 페이지를 새로고침 해주세요.';
+            
             [serverInfoEl, heapUsageEl, networkStatusEl, connectionSummaryEl].forEach(el => {
-                el.innerHTML = `<p style="color: #ff4d4d;">${data.error}</p>`;
+                el.innerHTML = '<p style="color: #e74c3c; font-weight: 600;">❌ 연결이 끊어졌습니다. 새로고침 해주세요.</p>';
             });
-            return;
-        }
+        };
 
-        // Server Info
-        serverInfoEl.innerHTML = `
-            <table>
-                <tr><th>Timestamp</th><td>${data.timestamp}</td></tr>
-                <tr><th>PID</th><td>${data.pid}</td></tr>
-                <tr><th>Thread Count</th><td>${data.threadCount}</td></tr>
-            </table>`;
-
-        // Heap Usage
-        heapUsageEl.innerHTML = `<pre>${data.heapUsage}</pre>`;
-
-        // Network Status
-        networkStatusEl.innerHTML = `
-            <table>
-                <tr><th>Established</th><td>${data.networkStatus.estab}</td></tr>
-                <tr><th>Closed</th><td>${data.networkStatus.closed}</td></tr>
-                <tr><th>Orphaned</th><td>${data.networkStatus.orphaned}</td></tr>
-                <tr><th>Time Wait</th><td>${data.networkStatus.timewait}</td></tr>
-            </table>`;
-
-        // Connection Summary
-        let summaryHtml = '<table><thead><tr><th>IP Address</th><th>Count</th></tr></thead><tbody>';
-        if (data.connectionSummary && data.connectionSummary.length > 0) {
-            data.connectionSummary.forEach(item => {
-                summaryHtml += `<tr><td>${item.ip}</td><td>${item.count}</td></tr>`;
+        ws.onerror = (error) => {
+            console.error('WebSocket Error:', error);
+            connectionStatusEl.className = 'status-indicator disconnected';
+            connectionStatusEl.innerHTML = '<strong>⚠️ 연결 오류:</strong> 서버 연결에 실패했습니다.';
+            
+            [serverInfoEl, heapUsageEl, networkStatusEl, connectionSummaryEl].forEach(el => {
+                el.innerHTML = '<p style="color: #e74c3c; font-weight: 600;">❌ 연결 오류가 발생했습니다.</p>';
             });
-        } else {
-            summaryHtml += '<tr><td colspan="2">No summary data.</td></tr>';
-        }
-        summaryHtml += '</tbody></table>';
-        connectionSummaryEl.innerHTML = summaryHtml;
-    };
+        };
 
-    ws.onclose = () => {
-        console.log('Disconnected from WebSocket server');
-        [serverInfoEl, heapUsageEl, networkStatusEl, connectionSummaryEl].forEach(el => {
-            el.textContent = 'Connection closed. Please refresh.';
+        // 페이지 로드 시 애니메이션 효과
+        document.addEventListener('DOMContentLoaded', function() {
+            const cards = document.querySelectorAll('.card');
+            cards.forEach((card, index) => {
+                setTimeout(() => {
+                    card.style.animationDelay = `${index * 0.1}s`;
+                }, 100);
+            });
         });
-    };
-
-    ws.onerror = (error) => {
-        console.error('WebSocket Error:', error);
-        [serverInfoEl, heapUsageEl, networkStatusEl, connectionSummaryEl].forEach(el => {
-            el.textContent = 'An error occurred with the connection.';
-        });
-    };
-  </script>
+    </script>
 </body>
 </html>
