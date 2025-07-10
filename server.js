@@ -68,7 +68,50 @@ async function getMonitoringData() {
   // 3. Get Heap Usage
   const { stdout: heapStdout } = await execPromise(`jstat -gc ${pid}`);
   const heapLines = heapStdout.trim().split('\n');
-  data.heapUsage = heapLines[heapLines.length - 1].trim();
+  const heapData = heapLines[heapLines.length - 1].trim();
+  
+  // jstat -gc 출력을 파싱하여 읽기 쉬운 형태로 변환
+  const heapValues = heapData.split(/\s+/);
+  const heapUsage = {
+    raw: heapData,
+    parsed: {
+      youngGen: {
+        s0c: parseFloat(heapValues[0]) || 0,  // Survivor space 0 capacity (KB)
+        s1c: parseFloat(heapValues[1]) || 0,  // Survivor space 1 capacity (KB)
+        s0u: parseFloat(heapValues[2]) || 0,  // Survivor space 0 used (KB)
+        s1u: parseFloat(heapValues[3]) || 0,  // Survivor space 1 used (KB)
+        ec: parseFloat(heapValues[4]) || 0,   // Eden space capacity (KB)
+        eu: parseFloat(heapValues[5]) || 0,   // Eden space used (KB)
+      },
+      oldGen: {
+        oc: parseFloat(heapValues[6]) || 0,   // Old generation capacity (KB)
+        ou: parseFloat(heapValues[7]) || 0,   // Old generation used (KB)
+      },
+      metaspace: {
+        mc: parseFloat(heapValues[8]) || 0,   // Metaspace capacity (KB)
+        mu: parseFloat(heapValues[9]) || 0,   // Metaspace used (KB)
+      },
+      gc: {
+        ygc: parseInt(heapValues[12]) || 0,   // Young generation GC count
+        ygct: parseFloat(heapValues[13]) || 0, // Young generation GC time (seconds)
+        fgc: parseInt(heapValues[14]) || 0,   // Full GC count
+        fgct: parseFloat(heapValues[15]) || 0, // Full GC time (seconds)
+        gct: parseFloat(heapValues[16]) || 0  // Total GC time (seconds)
+      }
+    },
+    summary: {
+      totalHeapCapacity: Math.round(((parseFloat(heapValues[4]) || 0) + (parseFloat(heapValues[6]) || 0)) / 1024), // MB
+      totalHeapUsed: Math.round(((parseFloat(heapValues[5]) || 0) + (parseFloat(heapValues[7]) || 0)) / 1024), // MB
+      heapUtilization: Math.round(((parseFloat(heapValues[5]) || 0) + (parseFloat(heapValues[7]) || 0)) / ((parseFloat(heapValues[4]) || 0) + (parseFloat(heapValues[6]) || 0)) * 100), // %
+      youngGenUtilization: Math.round((parseFloat(heapValues[5]) || 0) / (parseFloat(heapValues[4]) || 1) * 100), // %
+      oldGenUtilization: Math.round((parseFloat(heapValues[7]) || 0) / (parseFloat(heapValues[6]) || 1) * 100), // %
+      metaspaceUtilization: Math.round((parseFloat(heapValues[9]) || 0) / (parseFloat(heapValues[8]) || 1) * 100), // %
+      totalGcCount: (parseInt(heapValues[12]) || 0) + (parseInt(heapValues[14]) || 0),
+      totalGcTime: Math.round((parseFloat(heapValues[16]) || 0) * 1000) / 1000 // seconds
+    }
+  };
+  
+  data.heapUsage = heapUsage;
 
   // 4. Get Network Info
   if (isWindows) {
