@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>메신저 서비스 재시작 감지 및 상태 분석</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="20" cy="20" r="1" fill="%23ffffff" opacity="0.1"/><circle cx="80" cy="40" r="1" fill="%23ffffff" opacity="0.1"/><circle cx="40" cy="80" r="1" fill="%23ffffff" opacity="0.1"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
+            animation: float 20s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateX(0px) translateY(0px); }
+            50% { transform: translateX(-20px) translateY(-10px); }
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .header .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            position: relative;
+            z-index: 1;
+        }
+
+        .alert {
+            background: linear-gradient(135deg, #feca57, #ff9ff3);
+            color: #2c2c2c;
+            padding: 20px;
+            margin: 20px;
+            border-radius: 16px;
+            font-weight: 600;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(254, 202, 87, 0.3);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+            transition: left 0.5s;
+        }
+
+        .card:hover::before {
+            left: 100%;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        .card-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-bottom: 15px;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .icon {
+            width: 24px;
+            height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-size: 14px;
+        }
+
+        .icon.restart { background: #ff6b6b; color: white; }
+        .icon.memory { background: #4ecdc4; color: white; }
+        .icon.network { background: #45b7d1; color: white; }
+        .icon.performance { background: #96ceb4; color: white; }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .comparison-table th {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        .comparison-table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #f0f0f0;
+            transition: all 0.3s ease;
+        }
+
+        .comparison-table tr:hover td {
+            background: #f8f9ff;
+            transform: scale(1.01);
+        }
+
+        .status-good { color: #27ae60; font-weight: 600; }
+        .status-warning { color: #f39c12; font-weight: 600; }
+        .status-danger { color: #e74c3c; font-weight: 600; }
+
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .metric:last-child {
+            border-bottom: none;
+        }
+
+        .metric-value {
+            font-weight: 700;
+            font-size: 1.1rem;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 1s ease-in-out;
+        }
+
+        .progress-good { background: linear-gradient(135deg, #27ae60, #2ecc71); }
+        .progress-warning { background: linear-gradient(135deg, #f39c12, #f1c40f); }
+        .progress-danger { background: linear-gradient(135deg, #e74c3c, #c0392b); }
+
+        .timeline {
+            background: white;
+            border-radius: 20px;
+            padding: 25px;
+            margin-top: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .timeline-item {
+            display: flex;
+            align-items: center;
+            padding: 15px 0;
+            border-left: 3px solid #3498db;
+            padding-left: 20px;
+            margin-left: 10px;
+            position: relative;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 12px;
+            height: 12px;
+            background: #3498db;
+            border-radius: 50%;
+            box-shadow: 0 0 0 3px white, 0 0 0 6px #3498db;
+        }
+
+        .timeline-time {
+            font-weight: 700;
+            color: #3498db;
+            margin-right: 15px;
+            min-width: 80px;
+        }
+
+        .recommendations {
+            background: linear-gradient(135deg, #a8edea, #fed6e3);
+            border-radius: 20px;
+            padding: 25px;
+            margin-top: 25px;
+        }
+
+        .recommendations h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.4rem;
+        }
+
+        .recommendation-item {
+            background: rgba(255, 255, 255, 0.8);
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 10px;
+            backdrop-filter: blur(5px);
+            transition: all 0.3s ease;
+        }
+
+        .recommendation-item:hover {
+            transform: translateX(5px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .footer {
+            background: #2c3e50;
+            color: white;
+            text-align: center;
+            padding: 20px;
+            margin-top: 30px;
+        }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .container {
+                margin: 10px;
+                border-radius: 16px;
+            }
+        }
+
+        .animate-in {
+            animation: slideInUp 0.6s ease-out forwards;
+        }
+
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚨 메신저 서비스 재시작 감지</h1>
+            <div class="subtitle">2025년 6월 17일 12:06:19 서비스 재시작 상태 분석</div>
+        </div>
+
+        <div class="alert">
+            <strong>중요한 변화 감지:</strong> PID 26779 → 63765로 서비스 재시작 발생 (메모리 설정 2GB → 4GB 증설)
+        </div>
+
+        <div class="content">
+            <div class="grid">
+                <div class="card animate-in">
+                    <div class="card-title">
+                        <span class="icon restart">🔄</span>
+                        재시작 정보
+                    </div>
+                    <div class="metric">
+                        <span>이전 PID</span>
+                        <span class="metric-value status-danger">26779</span>
+                    </div>
+                    <div class="metric">
+                        <span>현재 PID</span>
+                        <span class="metric-value status-good">63765</span>
+                    </div>
+                    <div class="metric">
+                        <span>재시작 시점</span>
+                        <span class="metric-value">12:06:19</span>
+                    </div>
+                    <div class="metric">
+                        <span>다운타임</span>
+                        <span class="metric-value status-good">< 1분</span>
+                    </div>
+                </div>
+
+                <div class="card animate-in">
+                    <div class="card-title">
+                        <span class="icon memory">💾</span>
+                        메모리 현황
+                    </div>
+                    <div class="metric">
+                        <span>힙 메모리 설정</span>
+                        <span class="metric-value status-good">4GB (2GB에서 증설)</span>
+                    </div>
+                    <div class="metric">
+                        <span>현재 사용률</span>
+                        <span class="metric-value status-good">25%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill progress-good" style="width: 25%"></div>
+                    </div>
+                    <div class="metric">
+                        <span>GC 성능</span>
+                        <span class="metric-value status-good">99% 개선</span>
+                    </div>
+                </div>
+
+                <div class="card animate-in">
+                    <div class="card-title">
+                        <span class="icon network">🌐</span>
+                        네트워크 상태
+                    </div>
+                    <div class="metric">
+                        <span>현재 TCP 연결</span>
+                        <span class="metric-value status-good">3,427개</span>
+                    </div>
+                    <div class="metric">
+                        <span>활성 연결</span>
+                        <span class="metric-value status-good">3,361개</span>
+                    </div>
+                    <div class="metric">
+                        <span>연결 상태</span>
+                        <span class="metric-value status-good">정상화 완료</span>
+                    </div>
+                </div>
+
+                <div class="card animate-in">
+                    <div class="card-title">
+                        <span class="icon performance">📊</span>
+                        성능 지표
+                    </div>
+                    <div class="metric">
+                        <span>스레드 수</span>
+                        <span class="metric-value status-good">294개</span>
+                    </div>
+                    <div class="metric">
+                        <span>전체 상태</span>
+                        <span class="metric-value status-good">🟢 정상</span>
+                    </div>
+                    <div class="metric">
+                        <span>성능 개선도</span>
+                        <span class="metric-value status-good">+200%</span>
+                    </div>
+                </div>
+            </div>
+
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>항목</th>
+                        <th>재시작 전 (PID: 26779)</th>
+                        <th>재시작 후 (PID: 63765)</th>
+                        <th>개선도</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>힙 메모리</strong></td>
+                        <td>2GB</td>
+                        <td class="status-good">4GB</td>
+                        <td class="status-good">🟢 +100%</td>
+                    </tr>
+                    <tr>
+                        <td><strong>메모리 사용률</strong></td>
+                        <td class="status-danger">85-95%</td>
+                        <td class="status-good">16-25%</td>
+                        <td class="status-good">🟢 -70%</td>
+                    </tr>
+                    <tr>
+                        <td><strong>GC 시간</strong></td>
+                        <td class="status-danger">29.9초</td>
+                        <td class="status-good">0.16초</td>
+                        <td class="status-good">🟢 -99%</td>
+                    </tr>
+                    <tr>
+                        <td><strong>네트워크 연결</strong></td>
+                        <td>3,600개</td>
+                        <td class="status-good">3,400개</td>
+                        <td class="status-good">🟢 안정화</td>
+                    </tr>
+                    <tr>
+                        <td><strong>스레드 수</strong></td>
+                        <td>276개</td>
+                        <td class="status-good">294개</td>
+                        <td class="status-good">🟢 최적화</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="timeline">
+                <h3>🕐 재시작 타임라인</h3>
+                <div class="timeline-item">
+                    <div class="timeline-time">12:02-12:05</div>
+                    <div>메모리 사용률 95% 도달, 성능 저하 시작</div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-time">12:06:19</div>
+                    <div><strong>서비스 재시작 발생</strong> - PID 변경 및 메모리 증설</div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-time">12:06-12:07</div>
+                    <div>일시적 네트워크 연결 폭증 (18,339개)</div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-time">12:08 이후</div>
+                    <div>모든 지표 정상화, 안정적 운영 시작</div>
+                </div>
+            </div>
+
+            <div class="recommendations">
+                <h3>🎯 권장사항</h3>
+                <div class="recommendation-item">
+                    <strong>지속적 모니터링:</strong> 4GB 메모리 설정에서도 사용률 추이 관찰 필요
+                </div>
+                <div class="recommendation-item">
+                    <strong>로그 분석:</strong> 12:06 전후 에러 로그 확인으로 정확한 재시작 원인 파악
+                </div>
+                <div class="recommendation-item">
+                    <strong>성능 최적화:</strong> 현재 안정 상태 유지 및 메모리 누수 방지 코드 적용
+                </div>
+                <div class="recommendation-item">
+                    <strong>알림 시스템:</strong> 메모리 사용률 80% 초과 시 사전 알림 설정
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>📈 결론: 서비스가 성공적으로 재시작되어 현재 안정적으로 운영 중입니다. 메모리 증설로 인해 성능이 크게 개선되었습니다.</p>
+            <p style="margin-top: 10px; opacity: 0.8;">분석 시간: 2025년 6월 17일 12:12:20 KST</p>
+        </div>
+    </div>
+
+    <script>
+        // 페이지 로드 시 애니메이션 효과
+        document.addEventListener('DOMContentLoaded', function() {
+            const cards = document.querySelectorAll('.card');
+            cards.forEach((card, index) => {
+                setTimeout(() => {
+                    card.style.animationDelay = `${index * 0.1}s`;
+                }, 100);
+            });
+
+            // 프로그레스 바 애니메이션
+            const progressBars = document.querySelectorAll('.progress-fill');
+            setTimeout(() => {
+                progressBars.forEach(bar => {
+                    const width = bar.style.width;
+                    bar.style.width = '0%';
+                    setTimeout(() => {
+                        bar.style.width = width;
+                    }, 500);
+                });
+            }, 1000);
+        });
+
+        // 실시간 시간 업데이트
+        function updateTime() {
+            const now = new Date();
+            const timeString = now.toLocaleString('ko-KR', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            
+            const timeElements = document.querySelectorAll('.current-time');
+            timeElements.forEach(el => el.textContent = timeString);
+        }
+
+        setInterval(updateTime, 1000);
+        updateTime();
+    </script>
+</body>
+</html>
