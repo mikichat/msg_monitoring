@@ -46,7 +46,7 @@ async function getMonitoringData() {
 
   // 1. Get JVM PID
   const pidCommand = isWindows
-    ? 'wmic process where "commandline like '%ss.jar%' and name='java.exe'" get processid'
+    ? 'wmic process where "commandline like \'%ss.jar%\' and name=\'java.exe\'" get processid'
     : 'pgrep -f "java.*ss.jar"';
   const { stdout: pidStdout } = await execPromise(pidCommand);
   const pidMatch = pidStdout.match(/\d+/);
