@@ -4,6 +4,8 @@ const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
 const { exec } = require('child_process');
+const util = require('util');
+const execPromise = util.promisify(exec);
 
 const app = express();
 const server = http.createServer(app);
@@ -17,68 +19,14 @@ app.use(express.static(path.join(__dirname, 'public')));
 wss.on('connection', (ws) => {
   console.log('Client connected');
 
-  const monitorInterval = setInterval(() => {
-    const data = {};
-
-    // 1. Get JVM PID
-    const pidCommand = 'wmic process where "commandline like '%ss.jar%' and name='java.exe'" get processid';
-    exec(pidCommand, (err, stdout) => {
-      if (err) {
-        console.error('PID Error:', err);
-        return;
-      }
-      const pidMatch = stdout.match(/\d+/);
-      if (!pidMatch) {
-        ws.send(JSON.stringify({ error: "Target Java process (ss.jar) not found."}));
-        return;
-      }
-      const pid = pidMatch[0];
-      data.pid = pid;
-      data.timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
-
-      // Chain commands: 2. Get Thread Count
-      const threadCountCommand = `wmic process where processid=${pid} get ThreadCount`;
-      exec(threadCountCommand, (err, stdout) => {
-        if (!err) {
-            const threadMatch = stdout.match(/\d+/g);
-            if (threadMatch && threadMatch.length > 1) data.threadCount = threadMatch[1];
-        }
-
-        // Chain commands: 3. Get Heap Usage
-        const heapCommand = `jstat -gc ${pid}`;
-        exec(heapCommand, (err, stdout) => {
-            if (!err) {
-                const lines = stdout.trim().split('\n');
-                data.heapUsage = lines[lines.length - 1].trim();
-            }
-
-            // Chain commands: 4. Get Network Info
-            const netstatCommand = 'netstat -an';
-            exec(netstatCommand, (err, stdout) => {
-                if (!err) {
-                    const lines = stdout.trim().split('\n');
-                    const networkStatus = { estab: 0, time_wait: 0, close_wait: 0 };
-                    const connectionSummary = {};
-
-                    lines.forEach(line => {
-                        const upperLine = line.toUpperCase();
-                        const parts = line.trim().split(/\s+/);
-                        if (upperLine.includes('ESTABLISHED')) {
-                            networkStatus.estab++;
-                            const ip = parts[2]; // Foreign Address
-                            if (ip) connectionSummary[ip] = (connectionSummary[ip] || 0) + 1;
-                        }
-                        if (upperLine.includes('TIME_WAIT')) networkStatus.time_wait++;
-                        if (upperLine.includes('CLOSE_WAIT')) networkStatus.close_wait++;
-                    });
-                    data.networkStatus = networkStatus;
-                    data.connectionSummary = Object.entries(connectionSummary).map(([ip, count]) => ({ ip, count }));
-                }
-                ws.send(JSON.stringify(data));
-            });
-        });
-      });
-    });
+  const monitorInterval = setInterval(async () => {
+    try {
+      const data = await getMonitoringData();
+      ws.send(JSON.stringify(data));
+    } catch (error) {
+      console.error('Monitoring Error:', error.message);
+      ws.send(JSON.stringify({ error: error.message }));
+    }
   }, 10000); // Run every 10 seconds
 
   ws.on('close', () => {
@@ -91,6 +39,79 @@ wss.on('connection', (ws) => {
     clearInterval(monitorInterval);
   });
 });
+
+async function getMonitoringData() {
+  const isWindows = process.platform === 'win32';
+  const data = { timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19) };
+
+  // 1. Get JVM PID
+  const pidCommand = isWindows
+    ? 'wmic process where "commandline like '%ss.jar%' and name='java.exe'" get processid'
+    : 'pgrep -f "java.*ss.jar"';
+  const { stdout: pidStdout } = await execPromise(pidCommand);
+  const pidMatch = pidStdout.match(/\d+/);
+  if (!pidMatch) {
+    throw new Error('Target Java process (ss.jar) not found.');
+  }
+  const pid = pidMatch[0];
+  data.pid = pid;
+
+  // 2. Get Thread Count
+  const threadCountCommand = isWindows
+    ? `wmic process where processid=${pid} get ThreadCount`
+    : `ps -o nlwp -p ${pid}`;
+  const { stdout: threadStdout } = await execPromise(threadCountCommand);
+  const threadMatch = threadStdout.match(/\d+/g);
+  if (threadMatch) {
+      data.threadCount = isWindows ? threadMatch[1] : threadMatch[0];
+  }
+
+  // 3. Get Heap Usage
+  const { stdout: heapStdout } = await execPromise(`jstat -gc ${pid}`);
+  const heapLines = heapStdout.trim().split('\n');
+  data.heapUsage = heapLines[heapLines.length - 1].trim();
+
+  // 4. Get Network Info
+  if (isWindows) {
+    const { stdout: netstatStdout } = await execPromise('netstat -an');
+    const lines = netstatStdout.trim().split('\n');
+    const networkStatus = { estab: 0, time_wait: 0, close_wait: 0 };
+    const connectionSummary = {};
+    lines.forEach(line => {
+        const upperLine = line.toUpperCase();
+        const parts = line.trim().split(/\s+/);
+        if (upperLine.includes('ESTABLISHED')) {
+            networkStatus.estab++;
+            const ip = parts[2];
+            if (ip) connectionSummary[ip] = (connectionSummary[ip] || 0) + 1;
+        }
+        if (upperLine.includes('TIME_WAIT')) networkStatus.time_wait++;
+        if (upperLine.includes('CLOSE_WAIT')) networkStatus.close_wait++;
+    });
+    data.networkStatus = networkStatus;
+    data.connectionSummary = Object.entries(connectionSummary).map(([ip, count]) => ({ ip, count }));
+  } else { // Linux
+    const { stdout: ssStatusStdout } = await execPromise('ss -s');
+    const tcpLine = ssStatusStdout.split('\n').find(l => l.trim().startsWith('TCP:'));
+    const estabMatch = tcpLine ? tcpLine.match(/estab (\d+)/) : null;
+    data.networkStatus = { estab: estabMatch ? estabMatch[1] : 0 };
+
+    const { stdout: ssConnStdout } = await execPromise('ss -tan');
+    const lines = ssConnStdout.trim().split('\n');
+    const connectionSummary = {};
+    lines.slice(1).forEach(line => {
+        const parts = line.trim().split(/\s+/);
+        const state = parts[0];
+        if (state === 'ESTAB' || state === 'TIME-WAIT' || state === 'CLOSE-WAIT') {
+            const ip = parts[4];
+            if (ip) connectionSummary[ip] = (connectionSummary[ip] || 0) + 1;
+        }
+    });
+    data.connectionSummary = Object.entries(connectionSummary).map(([ip, count]) => ({ ip, count }));
+  }
+
+  return data;
+}
 
 
 
