@@ -1,0 +1,94 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>메신저 서비스 모니터링</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: linear-gradient(135deg, #1e1e1e, #2d2d2d);
+      color: #e0e0e0;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 300;
+      text-align: center;
+      margin-bottom: 40px;
+      text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+    }
+    .container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+      width: 100%;
+      max-width: 1200px;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 15px;
+      padding: 20px;
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+      backdrop-filter: blur(5px);
+      -webkit-backdrop-filter: blur(5px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: transform 0.3s ease;
+    }
+    .card:hover {
+        transform: translateY(-5px);
+    }
+    .card h2 {
+        margin-top: 0;
+        font-size: 1.5rem;
+        color: #00ffff;
+        border-bottom: 1px solid #00ffff40;
+        padding-bottom: 10px;
+    }
+    #data {
+        white-space: pre-wrap;
+        font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <h1>메신저 서비스 모니터링</h1>
+  <div class="container">
+    <div class="card">
+        <h2>서버 상태</h2>
+        <div id="data">Connecting to server...</div>
+    </div>
+    </div>
+
+  <script>
+    const dataElement = document.getElementById('data');
+    const ws = new WebSocket(`ws://${location.host}`);
+
+    ws.onopen = () => {
+      console.log('Connected to WebSocket server');
+      dataElement.textContent = 'Connection established. Waiting for data...';
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      // 데이터를 예쁘게 포맷팅하여 표시
+      dataElement.textContent = JSON.stringify(data, null, 2);
+    };
+
+    ws.onclose = () => {
+      console.log('Disconnected from WebSocket server');
+      dataElement.textContent = 'Connection closed. Please refresh.';
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket Error:', error);
+      dataElement.textContent = 'An error occurred with the connection.';
+    };
+  </script>
+</body>
+</html>

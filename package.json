@@ -1,0 +1,25 @@
+{
+  "name": "msg_monitoring",
+  "version": "1.0.0",
+  "description": "🎯 주요 기능 1. 서버 프로세스 상세 모니터링     * 가동 시간, 메모리 사용량, CPU 사용률, 스레드 수 실시간 추이 분석     * 서버 재시작 감지 및 자동 알림 2. 소켓 연결 상태 모니터링 (ss -s 기반)     * 총 소켓, TCP/UDP 소켓 수 현황 파악     * ESTABLISHED, LISTEN, TIME_WAIT, CLOSE_WAIT 등 소켓 상태별 상세 분류 3. 메신저 서버 전용 로그 분석     * 사용자 연결/해제, 메시지 전송 상태 모니터링     * 방 생성/삭제, 인증 실패, 시스템 경고 및 오류 로그 추적",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mikichat/msg_monitoring.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/mikichat/msg_monitoring/issues"
+  },
+  "homepage": "https://github.com/mikichat/msg_monitoring#readme",
+  "dependencies": {
+    "express": "^5.1.0",
+    "ws": "^8.18.3"
+  }
+}
