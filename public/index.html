@@ -6,55 +6,63 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>메신저 서비스 모니터링</title>
   <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background: linear-gradient(135deg, #1e1e1e, #2d2d2d);
-      color: #e0e0e0;
-      margin: 0;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    h1 {
-      font-size: 2.5rem;
-      font-weight: 300;
-      text-align: center;
-      margin-bottom: 40px;
-      text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
-    }
-    .container {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 20px;
-      width: 100%;
-      max-width: 1200px;
-    }
-    .card {
-      background: rgba(255, 255, 255, 0.05);
-      border-radius: 15px;
-      padding: 20px;
-      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-      backdrop-filter: blur(5px);
-      -webkit-backdrop-filter: blur(5px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      transition: transform 0.3s ease;
-    }
-    .card:hover {
-        transform: translateY(-5px);
-    }
-    .card h2 {
-        margin-top: 0;
-        font-size: 1.5rem;
-        color: #00ffff;
-        border-bottom: 1px solid #00ffff40;
-        padding-bottom: 10px;
-    }
-    #data {
-        white-space: pre-wrap;
-        font-family: monospace;
-    }
-  </style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #1e1e1e, #2d2d2d);
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 300;
+            text-align: center;
+            margin-bottom: 40px;
+            text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+        }
+        .container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            width: 100%;
+            max-width: 1200px;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: transform 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        .card h2 {
+            margin-top: 0;
+            font-size: 1.5rem;
+            color: #00ffff;
+            border-bottom: 1px solid #00ffff40;
+            padding-bottom: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ffffff20;
+        }
+        th {
+            color: #00ffff;
+        }
+    </style>
 </head>
 <body>
   <h1>메신저 서비스 모니터링</h1>
@@ -63,31 +71,63 @@
         <h2>Java Process Info</h2>
         <div id="processInfo">Connecting to server...</div>
     </div>
+    <div class="card">
+        <h2>Socket Status</h2>
+        <div id="socketInfo">Connecting to server...</div>
+    </div>
     </div>
 
   <script>
-    const dataElement = document.getElementById('data');
+    const processInfoElement = document.getElementById('processInfo');
+    const socketInfoElement = document.getElementById('socketInfo');
     const ws = new WebSocket(`ws://${location.host}`);
 
     ws.onopen = () => {
       console.log('Connected to WebSocket server');
-      dataElement.textContent = 'Connection established. Waiting for data...';
+      processInfoElement.textContent = 'Connection established. Waiting for data...';
+      socketInfoElement.textContent = 'Connection established. Waiting for data...';
     };
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      // 데이터를 예쁘게 포맷팅하여 표시
-      dataElement.textContent = JSON.stringify(data, null, 2);
+
+      // Update Process Info
+      if (data.processInfo) {
+        let processTableHtml = '<table><thead><tr><th>Name</th><th>PID</th><th>Session</th><th>Mem Usage</th></tr></thead><tbody>';
+        if (data.processInfo.length > 0) {
+            data.processInfo.forEach(p => {
+                processTableHtml += `<tr><td>${p.name}</td><td>${p.pid}</td><td>${p.sessionName}#${p.sessionNum}</td><td>${p.memUsage}</td></tr>`;
+            });
+        } else {
+            processTableHtml += '<tr><td colspan="4">No java process found.</td></tr>';
+        }
+        processTableHtml += '</tbody></table>';
+        processInfoElement.innerHTML = processTableHtml;
+      }
+
+      // Update Socket Info
+      if (data.socketInfo) {
+        let socketTableHtml = '<table><thead><tr><th>Status</th><th>Count</th></tr></thead><tbody>';
+        socketTableHtml += `<tr><td>Total</td><td>${data.socketInfo.total}</td></tr>`;
+        socketTableHtml += `<tr><td>Established</td><td>${data.socketInfo.established}</td></tr>`;
+        socketTableHtml += `<tr><td>Listen</td><td>${data.socketInfo.listen}</td></tr>`;
+        socketTableHtml += `<tr><td>Time Wait</td><td>${data.socketInfo.time_wait}</td></tr>`;
+        socketTableHtml += `<tr><td>Close Wait</td><td>${data.socketInfo.close_wait}</td></tr>`;
+        socketTableHtml += '</tbody></table>';
+        socketInfoElement.innerHTML = socketTableHtml;
+      }
     };
 
     ws.onclose = () => {
       console.log('Disconnected from WebSocket server');
-      dataElement.textContent = 'Connection closed. Please refresh.';
+      processInfoElement.textContent = 'Connection closed. Please refresh.';
+      socketInfoElement.textContent = 'Connection closed. Please refresh.';
     };
 
     ws.onerror = (error) => {
       console.error('WebSocket Error:', error);
-      dataElement.textContent = 'An error occurred with the connection.';
+      processInfoElement.textContent = 'An error occurred with the connection.';
+      socketInfoElement.textContent = 'An error occurred with the connection.';
     };
   </script>
 </body>

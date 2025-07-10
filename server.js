@@ -17,19 +17,17 @@ app.use(express.static(path.join(__dirname, 'public')));
 wss.on('connection', (ws) => {
   console.log('Client connected');
 
-  // 주기적으로 데이터 전송 (예시)
+  // 주기적으로 데이터 전송
   const interval = setInterval(() => {
-    // 여기에 모니터링 데이터 전송 로직 추가
-    const command = 'tasklist /fi "IMAGENAME eq java.exe" /fo csv /nh';
-    exec(command, (err, stdout, stderr) => {
-        if (err) {
-            console.error(`exec error: ${err}`);
-            return;
+    // 1. Process Monitoring
+    const processCommand = 'tasklist /fi "IMAGENAME eq java.exe" /fo csv /nh';
+    exec(processCommand, (procErr, procStdout) => {
+        if (procErr) {
+            console.error(`exec error (tasklist): ${procErr}`);
         }
 
-        // stdout 파싱하여 의미있는 데이터로 가공
-        const lines = stdout.trim().split('\n');
-        const processes = lines.map(line => {
+        const processLines = procStdout.trim().split('\n').filter(line => line);
+        const processes = processLines.map(line => {
             const columns = line.replace(/"/g, '').split(',');
             if (columns.length >= 5) {
                 return {
@@ -43,7 +41,34 @@ wss.on('connection', (ws) => {
             return null;
         }).filter(p => p);
 
-        ws.send(JSON.stringify({ processInfo: processes }));
+        // 2. Socket Monitoring
+        const socketCommand = 'netstat -an';
+        exec(socketCommand, (sockErr, sockStdout) => {
+            const dataToSend = {
+                processInfo: processes,
+                socketInfo: { established: 0, listen: 0, time_wait: 0, close_wait: 0, total: 0 }
+            };
+
+            if (sockErr) {
+                console.error(`exec error (netstat): ${sockErr}`);
+                ws.send(JSON.stringify(dataToSend));
+                return;
+            }
+
+            const socketLines = sockStdout.trim().split('\n');
+            const socketStats = dataToSend.socketInfo;
+
+            socketLines.forEach(line => {
+                const upperLine = line.toUpperCase();
+                if (upperLine.includes('ESTABLISHED')) socketStats.established++;
+                if (upperLine.includes('LISTENING')) socketStats.listen++;
+                if (upperLine.includes('TIME_WAIT')) socketStats.time_wait++;
+                if (upperLine.includes('CLOSE_WAIT')) socketStats.close_wait++;
+            });
+            socketStats.total = socketStats.established + socketStats.listen + socketStats.time_wait + socketStats.close_wait;
+
+            ws.send(JSON.stringify(dataToSend));
+        });
     });
   }, 1000);
 
