@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>메신저 서비스 모니터링</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -119,6 +120,10 @@
             overflow: hidden;
         }
 
+        .card.full-width {
+            grid-column: 1 / -1;
+        }
+
         .card::before {
             content: '';
             position: absolute;
@@ -163,6 +168,7 @@
         .icon.memory { background: #4ecdc4; color: white; }
         .icon.network { background: #45b7d1; color: white; }
         .icon.connections { background: #96ceb4; color: white; }
+        .icon.chart { background: #9b59b6; color: white; }
 
         .data-table {
             width: 100%;
@@ -270,6 +276,12 @@
             transform: scale(1.01);
         }
 
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-top: 10px;
+        }
+
         @media (max-width: 768px) {
             .grid {
                 grid-template-columns: 1fr;
@@ -358,6 +370,16 @@
                         <span style="margin-left: 10px;">데이터 로딩 중...</span>
                     </div>
                 </div>
+
+                <div class="card animate-in full-width">
+                    <div class="card-title">
+                        <span class="icon chart">📊</span>
+                        Established Connections Trend (Last 10 minutes)
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="connectionChart"></canvas>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -372,6 +394,119 @@
         const networkStatusEl = document.getElementById('networkStatus');
         const connectionSummaryEl = document.getElementById('connectionSummary');
         const connectionStatusEl = document.getElementById('connectionStatus');
+
+        // Chart.js 설정
+        const ctx = document.getElementById('connectionChart').getContext('2d');
+        const connectionChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Established Connections',
+                    data: [],
+                    borderColor: '#45b7d1',
+                    backgroundColor: 'rgba(69, 183, 209, 0.1)',
+                    borderWidth: 3,
+                    fill: true,
+                    tension: 0.4,
+                    pointBackgroundColor: '#45b7d1',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 2,
+                    pointRadius: 5,
+                    pointHoverRadius: 7
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    intersect: false,
+                    mode: 'index',
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            font: {
+                                size: 14,
+                                weight: 'bold'
+                            }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: '#ffffff',
+                        bodyColor: '#ffffff',
+                        borderColor: '#45b7d1',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        displayColors: false,
+                        callbacks: {
+                            title: function(context) {
+                                return 'Time: ' + context[0].label;
+                            },
+                            label: function(context) {
+                                return 'Established: ' + context.parsed.y + ' connections';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'Time',
+                            font: {
+                                size: 14,
+                                weight: 'bold'
+                            }
+                        },
+                        grid: {
+                            display: true,
+                            color: 'rgba(0, 0, 0, 0.1)'
+                        },
+                        ticks: {
+                            maxTicksLimit: 10,
+                            font: {
+                                size: 12
+                            }
+                        }
+                    },
+                    y: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'Connections',
+                            font: {
+                                size: 14,
+                                weight: 'bold'
+                            }
+                        },
+                        grid: {
+                            display: true,
+                            color: 'rgba(0, 0, 0, 0.1)'
+                        },
+                        beginAtZero: true,
+                        ticks: {
+                            font: {
+                                size: 12
+                            }
+                        }
+                    }
+                },
+                animation: {
+                    duration: 750,
+                    easing: 'easeInOutQuart'
+                }
+            }
+        });
+
+        // 데이터 저장소 (최근 10분간 데이터 보관)
+        const connectionHistory = [];
+        const MAX_DATA_POINTS = 60; // 10분 * 6회/분 = 60개 데이터 포인트
 
         const ws = new WebSocket(`ws://${location.host}`);
 
@@ -466,6 +601,27 @@
                         <span>Orphaned</span>
                         <span class="metric-value">${data.networkStatus.orphaned || 0}</span>
                     </div>`;
+
+                // 차트 데이터 업데이트
+                const currentTime = new Date().toLocaleTimeString();
+                const establishedCount = data.networkStatus.estab || 0;
+                
+                // 데이터 히스토리에 추가
+                connectionHistory.push({
+                    time: currentTime,
+                    established: establishedCount
+                });
+
+                // 최대 데이터 포인트 수 유지
+                if (connectionHistory.length > MAX_DATA_POINTS) {
+                    connectionHistory.shift();
+                }
+
+                // 차트 업데이트
+                connectionChart.data.labels = connectionHistory.map(item => item.time);
+                connectionChart.data.datasets[0].data = connectionHistory.map(item => item.established);
+                connectionChart.update('none'); // 애니메이션 없이 업데이트
+
             } else {
                 networkStatusEl.innerHTML = '<p>네트워크 상태 정보가 없습니다.</p>';
             }
