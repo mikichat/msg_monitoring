@@ -19,10 +19,21 @@
 🔧 실제 구현 예시
 실제 Java 메신저 서버와 연동하려면:
 1. 프로세스 모니터링 스크립트
-bash#!/bin/bash
-# 메모리 사용량: ps -p $PID -o rss=
-# CPU 사용률: ps -p $PID -o %cpu=
-# 스레드 수: ps -p $PID -o nlwp=
+```bash
+#!/bin/bash
+# 이 스크립트는 Java 메신저 서버의 실시간 성능 지표를 모니터링하고 로그 파일에 기록합니다.
+# 10초마다 다음 정보를 수집합니다:
+# - JVM PID 확인
+# - 힙 메모리 사용량 (jstat -gc 기반)
+# - 현재 스레드 수
+# - TCP 연결 상태 요약 (ss -s 기반)
+# - ESTABLISHED, CLOSE-WAIT, TIME-WAIT 상태의 IP별 연결 개수
+# 로그 파일: /root/tmp/java_monitor.log
+
+# 실행 방법:
+# sudo chmod +x java_monitor.sh
+# sudo ./java_monitor.sh &
+```
 2. 소켓 모니터링 (ss -s 명령어)
 bashss -s | grep -E "(ESTAB|LISTEN|TIME-WAIT|CLOSE-WAIT)"
 3. Java 서버 로그 설정
@@ -34,6 +45,7 @@ WebSocket
 
 ## 로그 샘플
 
+```
 === 2025-07-10 11:30:48 ===
 JVM PID: 61418
 Heap Usage:
@@ -65,3 +77,4 @@ Connection State Summary:
 109.2.1.105:6930 3
 109.2.1.105:6931 2
 109.2.1.105:6933 2
+```

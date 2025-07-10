@@ -68,66 +68,93 @@
   <h1>메신저 서비스 모니터링</h1>
   <div class="container">
     <div class="card">
-        <h2>Java Process Info</h2>
-        <div id="processInfo">Connecting to server...</div>
+        <h2>Server Info</h2>
+        <div id="serverInfo">Connecting...</div>
     </div>
     <div class="card">
-        <h2>Socket Status</h2>
-        <div id="socketInfo">Connecting to server...</div>
+        <h2>Heap Usage</h2>
+        <div id="heapUsage">Connecting...</div>
     </div>
+    <div class="card">
+        <h2>Network Status</h2>
+        <div id="networkStatus">Connecting...</div>
     </div>
+    <div class="card">
+        <h2>Connection Summary</h2>
+        <div id="connectionSummary">Connecting...</div>
+    </div>
+  </div>
 
   <script>
-    const processInfoElement = document.getElementById('processInfo');
-    const socketInfoElement = document.getElementById('socketInfo');
+    const serverInfoEl = document.getElementById('serverInfo');
+    const heapUsageEl = document.getElementById('heapUsage');
+    const networkStatusEl = document.getElementById('networkStatus');
+    const connectionSummaryEl = document.getElementById('connectionSummary');
+
     const ws = new WebSocket(`ws://${location.host}`);
 
     ws.onopen = () => {
-      console.log('Connected to WebSocket server');
-      processInfoElement.textContent = 'Connection established. Waiting for data...';
-      socketInfoElement.textContent = 'Connection established. Waiting for data...';
+        console.log('Connected to WebSocket server');
+        [serverInfoEl, heapUsageEl, networkStatusEl, connectionSummaryEl].forEach(el => {
+            el.textContent = 'Connection established. Waiting for data...';
+        });
     };
 
     ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+        const data = JSON.parse(event.data);
 
-      // Update Process Info
-      if (data.processInfo) {
-        let processTableHtml = '<table><thead><tr><th>Name</th><th>PID</th><th>Session</th><th>Mem Usage</th></tr></thead><tbody>';
-        if (data.processInfo.length > 0) {
-            data.processInfo.forEach(p => {
-                processTableHtml += `<tr><td>${p.name}</td><td>${p.pid}</td><td>${p.sessionName}#${p.sessionNum}</td><td>${p.memUsage}</td></tr>`;
+        if (data.error) {
+            [serverInfoEl, heapUsageEl, networkStatusEl, connectionSummaryEl].forEach(el => {
+                el.innerHTML = `<p style="color: #ff4d4d;">${data.error}</p>`;
+            });
+            return;
+        }
+
+        // Server Info
+        serverInfoEl.innerHTML = `
+            <table>
+                <tr><th>Timestamp</th><td>${data.timestamp}</td></tr>
+                <tr><th>PID</th><td>${data.pid}</td></tr>
+                <tr><th>Thread Count</th><td>${data.threadCount}</td></tr>
+            </table>`;
+
+        // Heap Usage
+        heapUsageEl.innerHTML = `<pre>${data.heapUsage}</pre>`;
+
+        // Network Status
+        networkStatusEl.innerHTML = `
+            <table>
+                <tr><th>Established</th><td>${data.networkStatus.estab}</td></tr>
+                <tr><th>Closed</th><td>${data.networkStatus.closed}</td></tr>
+                <tr><th>Orphaned</th><td>${data.networkStatus.orphaned}</td></tr>
+                <tr><th>Time Wait</th><td>${data.networkStatus.timewait}</td></tr>
+            </table>`;
+
+        // Connection Summary
+        let summaryHtml = '<table><thead><tr><th>IP Address</th><th>Count</th></tr></thead><tbody>';
+        if (data.connectionSummary && data.connectionSummary.length > 0) {
+            data.connectionSummary.forEach(item => {
+                summaryHtml += `<tr><td>${item.ip}</td><td>${item.count}</td></tr>`;
             });
         } else {
-            processTableHtml += '<tr><td colspan="4">No java process found.</td></tr>';
+            summaryHtml += '<tr><td colspan="2">No summary data.</td></tr>';
         }
-        processTableHtml += '</tbody></table>';
-        processInfoElement.innerHTML = processTableHtml;
-      }
-
-      // Update Socket Info
-      if (data.socketInfo) {
-        let socketTableHtml = '<table><thead><tr><th>Status</th><th>Count</th></tr></thead><tbody>';
-        socketTableHtml += `<tr><td>Total</td><td>${data.socketInfo.total}</td></tr>`;
-        socketTableHtml += `<tr><td>Established</td><td>${data.socketInfo.established}</td></tr>`;
-        socketTableHtml += `<tr><td>Listen</td><td>${data.socketInfo.listen}</td></tr>`;
-        socketTableHtml += `<tr><td>Time Wait</td><td>${data.socketInfo.time_wait}</td></tr>`;
-        socketTableHtml += `<tr><td>Close Wait</td><td>${data.socketInfo.close_wait}</td></tr>`;
-        socketTableHtml += '</tbody></table>';
-        socketInfoElement.innerHTML = socketTableHtml;
-      }
+        summaryHtml += '</tbody></table>';
+        connectionSummaryEl.innerHTML = summaryHtml;
     };
 
     ws.onclose = () => {
-      console.log('Disconnected from WebSocket server');
-      processInfoElement.textContent = 'Connection closed. Please refresh.';
-      socketInfoElement.textContent = 'Connection closed. Please refresh.';
+        console.log('Disconnected from WebSocket server');
+        [serverInfoEl, heapUsageEl, networkStatusEl, connectionSummaryEl].forEach(el => {
+            el.textContent = 'Connection closed. Please refresh.';
+        });
     };
 
     ws.onerror = (error) => {
-      console.error('WebSocket Error:', error);
-      processInfoElement.textContent = 'An error occurred with the connection.';
-      socketInfoElement.textContent = 'An error occurred with the connection.';
+        console.error('WebSocket Error:', error);
+        [serverInfoEl, heapUsageEl, networkStatusEl, connectionSummaryEl].forEach(el => {
+            el.textContent = 'An error occurred with the connection.';
+        });
     };
   </script>
 </body>
