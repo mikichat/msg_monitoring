@@ -59,7 +59,7 @@ async function getMonitoringData() {
   // 2. Get Thread Count
   const threadCountCommand = isWindows
     ? `wmic process where processid=${pid} get ThreadCount`
-    : `ps -o nlwp -p ${pid}`;
+    : `cat /proc/${pid}/status | grep Threads | awk '{print $2}'`;
   const { stdout: threadStdout } = await execPromise(threadCountCommand);
   const threadMatch = threadStdout.match(/\d+/g);
   if (threadMatch) {
