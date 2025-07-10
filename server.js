@@ -1,4 +1,3 @@
-
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
@@ -75,8 +74,15 @@ async function getMonitoringData() {
   if (isWindows) {
     const { stdout: netstatStdout } = await execPromise('netstat -an');
     const lines = netstatStdout.trim().split('\n');
-    const networkStatus = { estab: 0, time_wait: 0, close_wait: 0 };
+    const networkStatus = { 
+      estab: 0, 
+      time_wait: 0, 
+      close_wait: 0,
+      closed: 0,
+      orphaned: 0
+    };
     const connectionSummary = {};
+    
     lines.forEach(line => {
         const upperLine = line.toUpperCase();
         const parts = line.trim().split(/\s+/);
@@ -87,18 +93,47 @@ async function getMonitoringData() {
         }
         if (upperLine.includes('TIME_WAIT')) networkStatus.time_wait++;
         if (upperLine.includes('CLOSE_WAIT')) networkStatus.close_wait++;
+        if (upperLine.includes('CLOSED')) networkStatus.closed++;
     });
+    
     data.networkStatus = networkStatus;
-    data.connectionSummary = Object.entries(connectionSummary).map(([ip, count]) => ({ ip, count }));
+    // Count가 2 이상인 연결만 필터링
+    data.connectionSummary = Object.entries(connectionSummary)
+      .filter(([ip, count]) => count >= 2)
+      .map(([ip, count]) => ({ ip, count }));
   } else { // Linux
     const { stdout: ssStatusStdout } = await execPromise('ss -s');
     const tcpLine = ssStatusStdout.split('\n').find(l => l.trim().startsWith('TCP:'));
-    const estabMatch = tcpLine ? tcpLine.match(/estab (\d+)/) : null;
-    data.networkStatus = { estab: estabMatch ? estabMatch[1] : 0 };
+    
+    // 네트워크 상태 초기화
+    const networkStatus = { 
+      estab: 0, 
+      time_wait: 0, 
+      close_wait: 0,
+      closed: 0,
+      orphaned: 0
+    };
+    
+    if (tcpLine) {
+      const estabMatch = tcpLine.match(/estab (\d+)/);
+      const timeWaitMatch = tcpLine.match(/timewait (\d+)/);
+      const closeWaitMatch = tcpLine.match(/closewait (\d+)/);
+      const closedMatch = tcpLine.match(/closed (\d+)/);
+      const orphanedMatch = tcpLine.match(/orphaned (\d+)/);
+      
+      networkStatus.estab = estabMatch ? parseInt(estabMatch[1]) : 0;
+      networkStatus.time_wait = timeWaitMatch ? parseInt(timeWaitMatch[1]) : 0;
+      networkStatus.close_wait = closeWaitMatch ? parseInt(closeWaitMatch[1]) : 0;
+      networkStatus.closed = closedMatch ? parseInt(closedMatch[1]) : 0;
+      networkStatus.orphaned = orphanedMatch ? parseInt(orphanedMatch[1]) : 0;
+    }
+    
+    data.networkStatus = networkStatus;
 
     const { stdout: ssConnStdout } = await execPromise('ss -tan');
     const lines = ssConnStdout.trim().split('\n');
     const connectionSummary = {};
+    
     lines.slice(1).forEach(line => {
         const parts = line.trim().split(/\s+/);
         const state = parts[0];
@@ -107,13 +142,15 @@ async function getMonitoringData() {
             if (ip) connectionSummary[ip] = (connectionSummary[ip] || 0) + 1;
         }
     });
-    data.connectionSummary = Object.entries(connectionSummary).map(([ip, count]) => ({ ip, count }));
+    
+    // Count가 2 이상인 연결만 필터링
+    data.connectionSummary = Object.entries(connectionSummary)
+      .filter(([ip, count]) => count >= 2)
+      .map(([ip, count]) => ({ ip, count }));
   }
 
   return data;
 }
-
-
 
 server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
