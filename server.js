@@ -3,7 +3,7 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
-const fs = require('fs');
+const { exec } = require('child_process');
 
 const app = express();
 const server = http.createServer(app);
@@ -14,98 +14,85 @@ const PORT = process.env.PORT || 3000;
 // 정적 파일 제공
 app.use(express.static(path.join(__dirname, 'public')));
 
-const LOG_FILE_PATH = path.join(__dirname, 'java_monitor.log');
-
 wss.on('connection', (ws) => {
   console.log('Client connected');
 
-  const sendLogData = () => {
-    fs.readFile(LOG_FILE_PATH, 'utf8', (err, data) => {
+  const monitorInterval = setInterval(() => {
+    const data = {};
+
+    // 1. Get JVM PID
+    const pidCommand = 'wmic process where "commandline like '%ss.jar%' and name='java.exe'" get processid';
+    exec(pidCommand, (err, stdout) => {
       if (err) {
-        console.error(`Error reading log file: ${err}`);
-        ws.send(JSON.stringify({ error: 'Log file not found or unreadable.' }));
+        console.error('PID Error:', err);
         return;
       }
-
-      const latestEntry = parseLogData(data);
-      ws.send(JSON.stringify(latestEntry));
-    });
-  };
-
-  // Initial send
-  sendLogData();
-
-  // Watch for file changes
-  const watcher = fs.watch(LOG_FILE_PATH, (eventType) => {
-      if (eventType === 'change') {
-          sendLogData();
+      const pidMatch = stdout.match(/\d+/);
+      if (!pidMatch) {
+        ws.send(JSON.stringify({ error: "Target Java process (ss.jar) not found."}));
+        return;
       }
-  });
+      const pid = pidMatch[0];
+      data.pid = pid;
+      data.timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+
+      // Chain commands: 2. Get Thread Count
+      const threadCountCommand = `wmic process where processid=${pid} get ThreadCount`;
+      exec(threadCountCommand, (err, stdout) => {
+        if (!err) {
+            const threadMatch = stdout.match(/\d+/g);
+            if (threadMatch && threadMatch.length > 1) data.threadCount = threadMatch[1];
+        }
+
+        // Chain commands: 3. Get Heap Usage
+        const heapCommand = `jstat -gc ${pid}`;
+        exec(heapCommand, (err, stdout) => {
+            if (!err) {
+                const lines = stdout.trim().split('\n');
+                data.heapUsage = lines[lines.length - 1].trim();
+            }
+
+            // Chain commands: 4. Get Network Info
+            const netstatCommand = 'netstat -an';
+            exec(netstatCommand, (err, stdout) => {
+                if (!err) {
+                    const lines = stdout.trim().split('\n');
+                    const networkStatus = { estab: 0, time_wait: 0, close_wait: 0 };
+                    const connectionSummary = {};
+
+                    lines.forEach(line => {
+                        const upperLine = line.toUpperCase();
+                        const parts = line.trim().split(/\s+/);
+                        if (upperLine.includes('ESTABLISHED')) {
+                            networkStatus.estab++;
+                            const ip = parts[2]; // Foreign Address
+                            if (ip) connectionSummary[ip] = (connectionSummary[ip] || 0) + 1;
+                        }
+                        if (upperLine.includes('TIME_WAIT')) networkStatus.time_wait++;
+                        if (upperLine.includes('CLOSE_WAIT')) networkStatus.close_wait++;
+                    });
+                    data.networkStatus = networkStatus;
+                    data.connectionSummary = Object.entries(connectionSummary).map(([ip, count]) => ({ ip, count }));
+                }
+                ws.send(JSON.stringify(data));
+            });
+        });
+      });
+    });
+  }, 10000); // Run every 10 seconds
 
   ws.on('close', () => {
     console.log('Client disconnected');
-    watcher.close();
+    clearInterval(monitorInterval);
   });
 
   ws.on('error', (error) => {
     console.error('WebSocket Error:', error);
-    watcher.close();
+    clearInterval(monitorInterval);
   });
 });
 
-function parseLogData(logContent) {
-    const entries = logContent.trim().split('---');
-    const lastBlock = entries[entries.length - 2]; // Get the last complete block
-    if (!lastBlock) return {};
 
-    const lines = lastBlock.trim().split('\n');
-    const data = {
-        timestamp: 'N/A',
-        pid: 'N/A',
-        heapUsage: 'N/A',
-        threadCount: 'N/A',
-        networkStatus: {},
-        connectionSummary: []
-    };
-
-    let readingConnectionSummary = false;
-
-    lines.forEach(line => {
-        if (line.startsWith('===')) {
-            data.timestamp = line.replace('===', '').trim();
-        } else if (line.startsWith('JVM PID:')) {
-            data.pid = line.split(':')[1].trim();
-        } else if (line.startsWith('Heap Usage:')) {
-            // The next line is the actual heap data
-        } else if (!isNaN(line.trim().split(' ')[0]) && line.includes('.')) {
-            data.heapUsage = line.trim();
-        } else if (line.startsWith('Thread Count:')) {
-            data.threadCount = line.split(':')[1].trim();
-        } else if (line.startsWith('Network Status:')) {
-            const tcpLine = lines[lines.indexOf(line) + 1];
-            if (tcpLine && tcpLine.startsWith('TCP:')) {
-                const matches = tcpLine.match(/estab (\d+), closed (\d+), orphaned (\d+), timewait (\d+)/);
-                if (matches) {
-                    data.networkStatus = {
-                        estab: matches[1],
-                        closed: matches[2],
-                        orphaned: matches[3],
-                        timewait: matches[4]
-                    };
-                }
-            }
-        } else if (line.startsWith('Connection State Summary:')) {
-            readingConnectionSummary = true;
-        } else if (readingConnectionSummary && line.trim()) {
-            const parts = line.split(/\s+/);
-            if (parts.length === 2) {
-                data.connectionSummary.push({ ip: parts[0], count: parts[1] });
-            }
-        }
-    });
-
-    return data;
-}
 
 server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
