@@ -31,3 +31,37 @@ bashss -s | grep -E "(ESTAB|LISTEN|TIME-WAIT|CLOSE-WAIT)"
 Node.js
 Express
 WebSocket
+
+## 로그 샘플
+
+=== 2025-07-10 11:30:48 ===
+JVM PID: 61418
+Heap Usage:
+262144.0 262144.0 497.8   0.0   1572864.0 1008311.1 4194304.0   57565.1   262144.0 26482.8    300    2.450   0      0.000    2.450
+Thread Count: 293
+Network Status:
+TCP:   4463 (estab 4375, closed 39, orphaned 3, timewait 25)
+TCP	  4424      4421      3        
+Connection State Summary:
+109.2.1.88:1521 2
+127.0.0.1:22035 6
+127.0.0.1:1521 26
+109.2.1.105:6930 3
+109.2.1.105:6931 2
+109.2.1.105:6933 2
+---
+=== 2025-07-10 11:30:58 ===
+JVM PID: 61418
+Heap Usage:
+262144.0 262144.0  0.0   417.6  1572864.0 153413.4 4194304.0   57567.6   262144.0 26482.8    301    2.458   0      0.000    2.458
+Thread Count: 293
+Network Status:
+TCP:   4424 (estab 4335, closed 38, orphaned 5, timewait 24)
+TCP	  4386      4383      3        
+Connection State Summary:
+109.2.1.88:1521 2
+127.0.0.1:22035 6
+127.0.0.1:1521 26
+109.2.1.105:6930 3
+109.2.1.105:6931 2
+109.2.1.105:6933 2
