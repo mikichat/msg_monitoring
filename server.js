@@ -73,7 +73,7 @@ async function getMonitoringData() {
   // 4. Get Network Info
   if (isWindows) {
     const { stdout: netstatStdout } = await execPromise('netstat -an');
-    const lines = netstatStdout.trim().split('\n');
+    const netstatLines = netstatStdout.trim().split('\n');
     const networkStatus = { 
       estab: 0, 
       time_wait: 0, 
@@ -83,7 +83,7 @@ async function getMonitoringData() {
     };
     const connectionSummary = {};
     
-    statusLines.forEach(line => {
+    netstatLines.forEach(line => {
         const upperLine = line.toUpperCase();
         const parts = line.trim().split(/\s+/);
         if (upperLine.includes('ESTABLISHED')) {
@@ -116,7 +116,7 @@ async function getMonitoringData() {
     // ss -s 출력 전체에서 각 상태값을 찾아서 파싱
     const statusLines = ssStatusStdout.split('\n');
     
-    lines.forEach(line => {
+    statusLines.forEach(line => {
       const trimmedLine = line.trim();
       
       // TCP 라인에서 established 연결 수 추출
