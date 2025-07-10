@@ -27,8 +27,23 @@ wss.on('connection', (ws) => {
             return;
         }
 
-        // TODO: stdout 파싱하여 의미있는 데이터로 가공
-        ws.send(JSON.stringify({ processInfo: stdout.trim() }));
+        // stdout 파싱하여 의미있는 데이터로 가공
+        const lines = stdout.trim().split('\n');
+        const processes = lines.map(line => {
+            const columns = line.replace(/"/g, '').split(',');
+            if (columns.length >= 5) {
+                return {
+                    name: columns[0],
+                    pid: columns[1],
+                    sessionName: columns[2],
+                    sessionNum: columns[3],
+                    memUsage: columns[4]
+                };
+            }
+            return null;
+        }).filter(p => p);
+
+        ws.send(JSON.stringify({ processInfo: processes }));
     });
   }, 1000);
 
