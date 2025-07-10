@@ -83,7 +83,7 @@ async function getMonitoringData() {
     };
     const connectionSummary = {};
     
-    lines.forEach(line => {
+    statusLines.forEach(line => {
         const upperLine = line.toUpperCase();
         const parts = line.trim().split(/\s+/);
         if (upperLine.includes('ESTABLISHED')) {
@@ -114,7 +114,7 @@ async function getMonitoringData() {
     };
     
     // ss -s 출력 전체에서 각 상태값을 찾아서 파싱
-    const lines = ssStatusStdout.split('\n');
+    const statusLines = ssStatusStdout.split('\n');
     
     lines.forEach(line => {
       const trimmedLine = line.trim();
@@ -157,10 +157,10 @@ async function getMonitoringData() {
     data.networkStatus = networkStatus;
 
     const { stdout: ssConnStdout } = await execPromise('ss -tan');
-    const lines = ssConnStdout.trim().split('\n');
+    const connectionLines = ssConnStdout.trim().split('\n');
     const connectionSummary = {};
     
-    lines.slice(1).forEach(line => {
+    connectionLines.slice(1).forEach(line => {
         const parts = line.trim().split(/\s+/);
         const state = parts[0];
         if (state === 'ESTAB' || state === 'TIME-WAIT' || state === 'CLOSE-WAIT') {
