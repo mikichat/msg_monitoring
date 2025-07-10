@@ -407,26 +407,68 @@
                 </div>`;
 
             // Heap Usage
-            heapUsageEl.innerHTML = `<div class="heap-display">${data.heapUsage}</div>`;
+            const heapData = data.heapUsage;
+            if (heapData && heapData.summary) {
+                heapUsageEl.innerHTML = `
+                    <div class="metric">
+                        <span>총 힙 사용량</span>
+                        <span class="metric-value">${heapData.summary.totalHeapUsed}MB / ${heapData.summary.totalHeapCapacity}MB</span>
+                    </div>
+                    <div class="metric">
+                        <span>힙 사용률</span>
+                        <span class="metric-value">${heapData.summary.heapUtilization}%</span>
+                    </div>
+                    <div class="metric">
+                        <span>Young Gen 사용률</span>
+                        <span class="metric-value">${heapData.summary.youngGenUtilization}%</span>
+                    </div>
+                    <div class="metric">
+                        <span>Old Gen 사용률</span>
+                        <span class="metric-value">${heapData.summary.oldGenUtilization}%</span>
+                    </div>
+                    <div class="metric">
+                        <span>Metaspace 사용률</span>
+                        <span class="metric-value">${heapData.summary.metaspaceUtilization}%</span>
+                    </div>
+                    <div class="metric">
+                        <span>총 GC 횟수</span>
+                        <span class="metric-value">${heapData.summary.totalGcCount}</span>
+                    </div>
+                    <div class="metric">
+                        <span>총 GC 시간</span>
+                        <span class="metric-value">${heapData.summary.totalGcTime}초</span>
+                    </div>
+                `;
+            } else {
+                heapUsageEl.innerHTML = `<div class="heap-display">${typeof data.heapUsage === 'string' ? data.heapUsage : JSON.stringify(data.heapUsage, null, 2)}</div>`;
+            }
 
             // Network Status
-            networkStatusEl.innerHTML = `
-                <div class="metric">
-                    <span>Established</span>
-                    <span class="metric-value">${data.networkStatus.estab}</span>
-                </div>
-                <div class="metric">
-                    <span>Closed</span>
-                    <span class="metric-value">${data.networkStatus.closed}</span>
-                </div>
-                <div class="metric">
-                    <span>Orphaned</span>
-                    <span class="metric-value">${data.networkStatus.orphaned}</span>
-                </div>
-                <div class="metric">
-                    <span>Time Wait</span>
-                    <span class="metric-value">${data.networkStatus.timewait}</span>
-                </div>`;
+            if (data.networkStatus) {
+                networkStatusEl.innerHTML = `
+                    <div class="metric">
+                        <span>Established</span>
+                        <span class="metric-value">${data.networkStatus.estab || 0}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Time Wait</span>
+                        <span class="metric-value">${data.networkStatus.time_wait || data.networkStatus.timewait || 0}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Close Wait</span>
+                        <span class="metric-value">${data.networkStatus.close_wait || 0}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Closed</span>
+                        <span class="metric-value">${data.networkStatus.closed || 0}</span>
+                    </div>
+                    <div class="metric">
+                        <span>Orphaned</span>
+                        <span class="metric-value">${data.networkStatus.orphaned || 0}</span>
+                    </div>`;
+            } else {
+                networkStatusEl.innerHTML = '<p>네트워크 상태 정보가 없습니다.</p>';
+            }
 
             // Connection Summary
             let summaryHtml = '<table class="connection-summary-table"><thead><tr><th>IP Address</th><th>Count</th></tr></thead><tbody>';
