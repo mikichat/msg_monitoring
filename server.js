@@ -57,20 +57,21 @@ async function getMonitoringData() {
         const pids = stdout && stdout.match(/\d+/g);
         if (pids) {
           for (const p of pids) {
-            if (p !== '0') foundPids.push(p);
+            if (p !== '0') foundProcesses.push({ pid: p, target: target });
           }
         }
       } else {
         const { stdout } = await execPromise(`pgrep -f "java.*-jar /.*\\/${target}( |$)" | grep -v "bs_bms.jar"`);
         const pids = stdout && stdout.trim().split('\n').filter(Boolean);
-        if (pids) foundPids.push(...pids);
+        if (pids) pids.forEach(p => foundProcesses.push({ pid: p, target: target }));
       }
     } catch (e) {
       // ignore and continue to next target
     }
 
-    for (const pid of foundPids) {
-      if (!pid) continue;
+  for (const processInfo of foundProcesses) {
+    const pid = processInfo.pid;
+    const target = processInfo.target;
 
       // 2. Get Thread Count for this PID
     const threadCountCommand = isWindows
