@@ -44,7 +44,7 @@ async function getMonitoringData() {
   const data = { timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19) };
 
   // 1. Find PIDs for both ms.jar and ss.jar
-  const targets = ['ms/ms.jar', 'ss.jar'];
+  const targets = ['ms.jar', 'ss.jar'];
   const foundProcesses = [];
 
   for (const target of targets) {
@@ -54,20 +54,25 @@ async function getMonitoringData() {
         const { stdout } = await execPromise(
           `wmic process where "name='java.exe' and commandline like '%${target}%'" get processid`
         );
-        const match = stdout && stdout.match(/\d+/);
-        if (match) pid = match[0];
+        const pids = stdout && stdout.match(/\d+/g);
+        if (pids) {
+          for (const p of pids) {
+            if (p !== '0') foundPids.push(p);
+          }
+        }
       } else {
-        const { stdout } = await execPromise(`pgrep -f "java.*${target}"`);
-        const match = stdout && stdout.match(/\d+/);
-        if (match) pid = match[0];
+        const { stdout } = await execPromise(`pgrep -f "java.*-jar /.*\\/${target}( |$)" | grep -v "bs_bms.jar"`);
+        const pids = stdout && stdout.trim().split('\n').filter(Boolean);
+        if (pids) foundPids.push(...pids);
       }
     } catch (e) {
       // ignore and continue to next target
     }
 
-    if (!pid) continue;
+    for (const pid of foundPids) {
+      if (!pid) continue;
 
-    // 2. Get Thread Count for this PID
+      // 2. Get Thread Count for this PID
     const threadCountCommand = isWindows
       ? `wmic process where processid=${pid} get ThreadCount`
       : `cat /proc/${pid}/status | grep Threads | awk '{print $2}'`;
@@ -119,7 +124,8 @@ async function getMonitoringData() {
       }
     };
 
-    foundProcesses.push({ target, pid, threadCount, heapUsage });
+    foundProcesses.push({ target: `${target}-${pid}`, pid, threadCount, heapUsage });
+    }
   }
 
   if (foundProcesses.length === 0) {
@@ -127,11 +133,17 @@ async function getMonitoringData() {
   }
   data.processes = foundProcesses;
 
-  // 이전 단일 필드들과의 호환성을 위해 첫 번째 프로세스로 기본 필드 채움
-  const primary = foundProcesses[0];
-  data.pid = primary.pid;
-  data.threadCount = primary.threadCount;
-  data.heapUsage = primary.heapUsage;
+  // 각 프로세스의 데이터를 개별 필드로 추가
+  data.msJarProcesses = [];
+  data.ssJarProcesses = [];
+  foundProcesses.forEach(p => {
+    if (p.target.startsWith('ms.jar')) {
+      data.msJarProcesses.push({ pid: p.pid, threadCount: p.threadCount, heapUsage: p.heapUsage });
+    } else if (p.target.startsWith('ss.jar')) {
+      data.ssJarProcesses.push({ pid: p.pid, threadCount: p.threadCount, heapUsage: p.heapUsage });
+    }
+  });
+  // 기존 단일 필드는 제거 (클라이언트에서 data.processes 또는 새로 추가된 필드를 사용하도록 유도)
 
   // 4. Get Network Info
   if (isWindows) {
