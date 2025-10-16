@@ -526,57 +526,79 @@
                 return;
             }
 
-            // Server Info
-            serverInfoEl.innerHTML = `
+            // Server Info (multiple processes)
+            const processes = Array.isArray(data.processes) ? data.processes : [];
+            let serverInfoHtml = `
                 <div class="metric">
                     <span>타임스탬프</span>
                     <span class="metric-value">${data.timestamp}</span>
-                </div>
-                <div class="metric">
-                    <span>PID</span>
-                    <span class="metric-value">${data.pid}</span>
-                </div>
-                <div class="metric">
-                    <span>스레드 수</span>
-                    <span class="metric-value">${data.threadCount}</span>
                 </div>`;
-
-            // Heap Usage
-            const heapData = data.heapUsage;
-            if (heapData && heapData.summary) {
-                heapUsageEl.innerHTML = `
-                    <div class="metric">
-                        <span>총 힙 사용량</span>
-                        <span class="metric-value">${heapData.summary.totalHeapUsed}MB / ${heapData.summary.totalHeapCapacity}MB</span>
-                    </div>
-                    <div class="metric">
-                        <span>힙 사용률</span>
-                        <span class="metric-value">${heapData.summary.heapUtilization}%</span>
-                    </div>
-                    <div class="metric">
-                        <span>Young Gen 사용률</span>
-                        <span class="metric-value">${heapData.summary.youngGenUtilization}%</span>
-                    </div>
-                    <div class="metric">
-                        <span>Old Gen 사용률</span>
-                        <span class="metric-value">${heapData.summary.oldGenUtilization}%</span>
-                    </div>
-                    <div class="metric">
-                        <span>Metaspace 사용률</span>
-                        <span class="metric-value">${heapData.summary.metaspaceUtilization}%</span>
-                    </div>
-                    <div class="metric">
-                        <span>총 GC 횟수</span>
-                        <span class="metric-value">${heapData.summary.totalGcCount}</span>
-                    </div>
-                    <div class="metric">
-                        <span>총 GC 시간</span>
-                        <span class="metric-value">${heapData.summary.totalGcTime}초</span>
-                    </div>
-                `;
+            if (processes.length === 0) {
+                serverInfoHtml += `
+                <div class="metric">
+                    <span>프로세스</span>
+                    <span class="metric-value">없음</span>
+                </div>`;
             } else {
-                heapUsageEl.innerHTML = `<div class="heap-display">${typeof data.heapUsage === 'string' ? data.heapUsage : JSON.stringify(data.heapUsage, null, 2)}</div>`;
+                processes.forEach(p => {
+                    serverInfoHtml += `
+                    <div class="metric">
+                        <span>${p.target} PID</span>
+                        <span class="metric-value">${p.pid}</span>
+                    </div>
+                    <div class="metric">
+                        <span>${p.target} 스레드 수</span>
+                        <span class="metric-value">${p.threadCount ?? '-'}</span>
+                    </div>`;
+                });
             }
+            serverInfoEl.innerHTML = serverInfoHtml;
+
+            // Heap Usage (multiple processes)
+            let heapHtml = '';
+            if (processes.length > 0) {
+                processes.forEach(p => {
+                    const heapData = p.heapUsage;
+                    if (heapData && heapData.summary) {
+                        heapHtml += `
+                        <div style="margin-bottom:12px;">
+                            <div class="metric">
+                                <span>${p.target} 총 힙 사용량</span>
+                                <span class="metric-value">${heapData.summary.totalHeapUsed}MB / ${heapData.summary.totalHeapCapacity}MB</span>
+                            </div>
+                            <div class="metric">
+                                <span>${p.target} 힙 사용률</span>
+                                <span class="metric-value">${heapData.summary.heapUtilization}%</span>
+                            </div>
+                            <div class="metric">
+                                <span>${p.target} Young Gen</span>
+                                <span class="metric-value">${heapData.summary.youngGenUtilization}%</span>
+                            </div>
+                            <div class="metric">
+                                <span>${p.target} Old Gen</span>
+                                <span class="metric-value">${heapData.summary.oldGenUtilization}%</span>
+                            </div>
+                            <div class="metric">
+                                <span>${p.target} Metaspace</span>
+                                <span class="metric-value">${heapData.summary.metaspaceUtilization}%</span>
+                            </div>
+                            <div class="metric">
+                                <span>${p.target} 총 GC 횟수</span>
+                                <span class="metric-value">${heapData.summary.totalGcCount}</span>
+                            </div>
+                            <div class="metric">
+                                <span>${p.target} 총 GC 시간</span>
+                                <span class="metric-value">${heapData.summary.totalGcTime}초</span>
+                            </div>
+                        </div>`;
+                    } else {
+                        heapHtml += `<div class="heap-display">${typeof p.heapUsage === 'string' ? p.heapUsage : JSON.stringify(p.heapUsage, null, 2)}</div>`;
+                    }
+                });
+            } else {
+                heapHtml = '<p>프로세스 데이터가 없습니다.</p>';
+            }
+            heapUsageEl.innerHTML = heapHtml;
 
             // Network Status
             if (data.networkStatus) {

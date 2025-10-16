@@ -43,75 +43,95 @@ async function getMonitoringData() {
   const isWindows = process.platform === 'win32';
   const data = { timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19) };
 
-  // 1. Get JVM PID
-  const pidCommand = isWindows
-    ? 'wmic process where "commandline like \'%ss.jar%\' and name=\'java.exe\'" get processid'
-    : 'pgrep -f "java.*ss.jar"';
-  const { stdout: pidStdout } = await execPromise(pidCommand);
-  const pidMatch = pidStdout.match(/\d+/);
-  if (!pidMatch) {
-    throw new Error('Target Java process (ss.jar) not found.');
-  }
-  const pid = pidMatch[0];
-  data.pid = pid;
+  // 1. Find PIDs for both ms.jar and ss.jar
+  const targets = ['ms.jar', 'ss.jar'];
+  const foundProcesses = [];
 
-  // 2. Get Thread Count
-  const threadCountCommand = isWindows
-    ? `wmic process where processid=${pid} get ThreadCount`
-    : `cat /proc/${pid}/status | grep Threads | awk '{print $2}'`;
-  const { stdout: threadStdout } = await execPromise(threadCountCommand);
-  const threadMatch = threadStdout.match(/\d+/g);
-  if (threadMatch) {
-      data.threadCount = isWindows ? threadMatch[1] : threadMatch[0];
-  }
-
-  // 3. Get Heap Usage
-  const { stdout: heapStdout } = await execPromise(`jstat -gc ${pid}`);
-  const heapLines = heapStdout.trim().split('\n');
-  const heapData = heapLines[heapLines.length - 1].trim();
-  
-  // jstat -gc 출력을 파싱하여 읽기 쉬운 형태로 변환
-  const heapValues = heapData.split(/\s+/);
-  const heapUsage = {
-    raw: heapData,
-    parsed: {
-      youngGen: {
-        s0c: parseFloat(heapValues[0]) || 0,  // Survivor space 0 capacity (KB)
-        s1c: parseFloat(heapValues[1]) || 0,  // Survivor space 1 capacity (KB)
-        s0u: parseFloat(heapValues[2]) || 0,  // Survivor space 0 used (KB)
-        s1u: parseFloat(heapValues[3]) || 0,  // Survivor space 1 used (KB)
-        ec: parseFloat(heapValues[4]) || 0,   // Eden space capacity (KB)
-        eu: parseFloat(heapValues[5]) || 0,   // Eden space used (KB)
-      },
-      oldGen: {
-        oc: parseFloat(heapValues[6]) || 0,   // Old generation capacity (KB)
-        ou: parseFloat(heapValues[7]) || 0,   // Old generation used (KB)
-      },
-      metaspace: {
-        mc: parseFloat(heapValues[8]) || 0,   // Metaspace capacity (KB)
-        mu: parseFloat(heapValues[9]) || 0,   // Metaspace used (KB)
-      },
-      gc: {
-        ygc: parseInt(heapValues[12]) || 0,   // Young generation GC count
-        ygct: parseFloat(heapValues[13]) || 0, // Young generation GC time (seconds)
-        fgc: parseInt(heapValues[14]) || 0,   // Full GC count
-        fgct: parseFloat(heapValues[15]) || 0, // Full GC time (seconds)
-        gct: parseFloat(heapValues[16]) || 0  // Total GC time (seconds)
+  for (const target of targets) {
+    let pid = null;
+    try {
+      if (isWindows) {
+        const { stdout } = await execPromise(
+          `wmic process where "name='java.exe' and commandline like '%${target}%'" get processid`
+        );
+        const match = stdout && stdout.match(/\d+/);
+        if (match) pid = match[0];
+      } else {
+        const { stdout } = await execPromise(`pgrep -f "java.*${target}"`);
+        const match = stdout && stdout.match(/\d+/);
+        if (match) pid = match[0];
       }
-    },
-    summary: {
-      totalHeapCapacity: Math.round(((parseFloat(heapValues[4]) || 0) + (parseFloat(heapValues[6]) || 0)) / 1024), // MB
-      totalHeapUsed: Math.round(((parseFloat(heapValues[5]) || 0) + (parseFloat(heapValues[7]) || 0)) / 1024), // MB
-      heapUtilization: Math.round(((parseFloat(heapValues[5]) || 0) + (parseFloat(heapValues[7]) || 0)) / ((parseFloat(heapValues[4]) || 0) + (parseFloat(heapValues[6]) || 0)) * 100), // %
-      youngGenUtilization: Math.round((parseFloat(heapValues[5]) || 0) / (parseFloat(heapValues[4]) || 1) * 100), // %
-      oldGenUtilization: Math.round((parseFloat(heapValues[7]) || 0) / (parseFloat(heapValues[6]) || 1) * 100), // %
-      metaspaceUtilization: Math.round((parseFloat(heapValues[9]) || 0) / (parseFloat(heapValues[8]) || 1) * 100), // %
-      totalGcCount: (parseInt(heapValues[12]) || 0) + (parseInt(heapValues[14]) || 0),
-      totalGcTime: Math.round((parseFloat(heapValues[16]) || 0) * 1000) / 1000 // seconds
+    } catch (e) {
+      // ignore and continue to next target
     }
-  };
-  
-  data.heapUsage = heapUsage;
+
+    if (!pid) continue;
+
+    // 2. Get Thread Count for this PID
+    const threadCountCommand = isWindows
+      ? `wmic process where processid=${pid} get ThreadCount`
+      : `cat /proc/${pid}/status | grep Threads | awk '{print $2}'`;
+    const { stdout: threadStdout } = await execPromise(threadCountCommand);
+    const threadMatch = threadStdout.match(/\d+/g);
+    const threadCount = threadMatch ? (isWindows ? threadMatch[1] : threadMatch[0]) : undefined;
+
+    // 3. Get Heap Usage for this PID
+    const { stdout: heapStdout } = await execPromise(`jstat -gc ${pid}`);
+    const heapLines = heapStdout.trim().split('\n');
+    const heapData = heapLines[heapLines.length - 1].trim();
+    const heapValues = heapData.split(/\s+/);
+    const heapUsage = {
+      raw: heapData,
+      parsed: {
+        youngGen: {
+          s0c: parseFloat(heapValues[0]) || 0,
+          s1c: parseFloat(heapValues[1]) || 0,
+          s0u: parseFloat(heapValues[2]) || 0,
+          s1u: parseFloat(heapValues[3]) || 0,
+          ec: parseFloat(heapValues[4]) || 0,
+          eu: parseFloat(heapValues[5]) || 0,
+        },
+        oldGen: {
+          oc: parseFloat(heapValues[6]) || 0,
+          ou: parseFloat(heapValues[7]) || 0,
+        },
+        metaspace: {
+          mc: parseFloat(heapValues[8]) || 0,
+          mu: parseFloat(heapValues[9]) || 0,
+        },
+        gc: {
+          ygc: parseInt(heapValues[12]) || 0,
+          ygct: parseFloat(heapValues[13]) || 0,
+          fgc: parseInt(heapValues[14]) || 0,
+          fgct: parseFloat(heapValues[15]) || 0,
+          gct: parseFloat(heapValues[16]) || 0
+        }
+      },
+      summary: {
+        totalHeapCapacity: Math.round(((parseFloat(heapValues[4]) || 0) + (parseFloat(heapValues[6]) || 0)) / 1024),
+        totalHeapUsed: Math.round(((parseFloat(heapValues[5]) || 0) + (parseFloat(heapValues[7]) || 0)) / 1024),
+        heapUtilization: Math.round(((parseFloat(heapValues[5]) || 0) + (parseFloat(heapValues[7]) || 0)) / ((parseFloat(heapValues[4]) || 0) + (parseFloat(heapValues[6]) || 0)) * 100),
+        youngGenUtilization: Math.round((parseFloat(heapValues[5]) || 0) / (parseFloat(heapValues[4]) || 1) * 100),
+        oldGenUtilization: Math.round((parseFloat(heapValues[7]) || 0) / (parseFloat(heapValues[6]) || 1) * 100),
+        metaspaceUtilization: Math.round((parseFloat(heapValues[9]) || 0) / (parseFloat(heapValues[8]) || 1) * 100),
+        totalGcCount: (parseInt(heapValues[12]) || 0) + (parseInt(heapValues[14]) || 0),
+        totalGcTime: Math.round((parseFloat(heapValues[16]) || 0) * 1000) / 1000
+      }
+    };
+
+    foundProcesses.push({ target, pid, threadCount, heapUsage });
+  }
+
+  if (foundProcesses.length === 0) {
+    throw new Error('Target Java processes not found. (ms.jar, ss.jar)');
+  }
+  data.processes = foundProcesses;
+
+  // 이전 단일 필드들과의 호환성을 위해 첫 번째 프로세스로 기본 필드 채움
+  const primary = foundProcesses[0];
+  data.pid = primary.pid;
+  data.threadCount = primary.threadCount;
+  data.heapUsage = primary.heapUsage;
 
   // 4. Get Network Info
   if (isWindows) {
