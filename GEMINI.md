@@ -2,7 +2,7 @@
 
 It always responds in Korean.
 
-The development environment is windows.
+The development environment is linux.
 
 Think step by step, make a plan, and then do the work.
 
