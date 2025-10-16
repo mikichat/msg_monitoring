@@ -44,7 +44,7 @@ async function getMonitoringData() {
   const data = { timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19) };
 
   // 1. Find PIDs for both ms.jar and ss.jar
-  const targets = ['ms.jar', 'ss.jar'];
+  const targets = ['ms/ms.jar', 'ss.jar'];
   const foundProcesses = [];
 
   for (const target of targets) {
