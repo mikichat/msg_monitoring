@@ -374,7 +374,27 @@
                 <div class="card animate-in full-width">
                     <div class="card-title">
                         <span class="icon chart">📊</span>
-                        Established Connections Trend (Last 10 minutes)
+                        Heap Utilization Trend (%)
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="heapChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="card animate-in full-width">
+                    <div class="card-title">
+                        <span class="icon chart">📊</span>
+                        Thread Count Trend
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="threadChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="card animate-in full-width">
+                    <div class="card-title">
+                        <span class="icon chart">📊</span>
+                        Established Connections Trend
                     </div>
                     <div class="chart-container">
                         <canvas id="connectionChart"></canvas>
@@ -395,119 +415,66 @@
         const connectionSummaryEl = document.getElementById('connectionSummary');
         const connectionStatusEl = document.getElementById('connectionStatus');
 
-        // Chart.js 설정
-        const ctx = document.getElementById('connectionChart').getContext('2d');
-        const connectionChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'Established Connections',
-                    data: [],
-                    borderColor: '#45b7d1',
-                    backgroundColor: 'rgba(69, 183, 209, 0.1)',
-                    borderWidth: 3,
-                    fill: true,
-                    tension: 0.4,
-                    pointBackgroundColor: '#45b7d1',
-                    pointBorderColor: '#ffffff',
-                    pointBorderWidth: 2,
-                    pointRadius: 5,
-                    pointHoverRadius: 7
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: {
-                    intersect: false,
-                    mode: 'index',
+        const MAX_DATA_POINTS = 60; // 10분 * 6회/분 (10초 주기) = 60개 데이터 포인트
+        const timeHistory = [];
+
+        // --- Helper function to create a new chart ---
+        function createChart(canvasId, title, yAxisLabel) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            return new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: []
                 },
-                plugins: {
-                    legend: {
-                        display: true,
-                        position: 'top',
-                        labels: {
-                            usePointStyle: true,
-                            font: {
-                                size: 14,
-                                weight: 'bold'
-                            }
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { intersect: false, mode: 'index' },
+                    plugins: {
+                        legend: { display: true, position: 'top', labels: { usePointStyle: true, font: { size: 14, weight: 'bold' } } },
+                        tooltip: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            titleColor: '#ffffff',
+                            bodyColor: '#ffffff',
+                            borderWidth: 1,
+                            cornerRadius: 8,
+                            displayColors: true,
                         }
                     },
-                    tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        titleColor: '#ffffff',
-                        bodyColor: '#ffffff',
-                        borderColor: '#45b7d1',
-                        borderWidth: 1,
-                        cornerRadius: 8,
-                        displayColors: false,
-                        callbacks: {
-                            title: function(context) {
-                                return 'Time: ' + context[0].label;
-                            },
-                            label: function(context) {
-                                return 'Established: ' + context.parsed.y + ' connections';
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    x: {
-                        display: true,
-                        title: {
+                    scales: {
+                        x: {
                             display: true,
-                            text: 'Time',
-                            font: {
-                                size: 14,
-                                weight: 'bold'
-                            }
+                            title: { display: true, text: 'Time', font: { size: 14, weight: 'bold' } },
+                            grid: { color: 'rgba(0, 0, 0, 0.1)' },
+                            ticks: { maxTicksLimit: 10, font: { size: 12 } }
                         },
-                        grid: {
+                        y: {
                             display: true,
-                            color: 'rgba(0, 0, 0, 0.1)'
-                        },
-                        ticks: {
-                            maxTicksLimit: 10,
-                            font: {
-                                size: 12
-                            }
+                            title: { display: true, text: yAxisLabel, font: { size: 14, weight: 'bold' } },
+                            grid: { color: 'rgba(0, 0, 0, 0.1)' },
+                            beginAtZero: true,
+                            ticks: { font: { size: 12 } }
                         }
                     },
-                    y: {
-                        display: true,
-                        title: {
-                            display: true,
-                            text: 'Connections',
-                            font: {
-                                size: 14,
-                                weight: 'bold'
-                            }
-                        },
-                        grid: {
-                            display: true,
-                            color: 'rgba(0, 0, 0, 0.1)'
-                        },
-                        beginAtZero: true,
-                        ticks: {
-                            font: {
-                                size: 12
-                            }
-                        }
-                    }
-                },
-                animation: {
-                    duration: 750,
-                    easing: 'easeInOutQuart'
+                    animation: { duration: 750, easing: 'easeInOutQuart' }
                 }
-            }
-        });
+            });
+        }
+        
+        // --- Initialize Charts ---
+        const connectionChart = createChart('connectionChart', 'Established Connections', 'Connections');
+        const heapChart = createChart('heapChart', 'Heap Utilization (%)', 'Usage (%)');
+        const threadChart = createChart('threadChart', 'Thread Count', 'Count');
 
-        // 데이터 저장소 (최근 10분간 데이터 보관)
-        const connectionHistory = [];
-        const MAX_DATA_POINTS = 60; // 10분 * 6회/분 = 60개 데이터 포인트
+        // --- Data Storage ---
+        const chartData = {
+            connection: [],
+            heap: { 'ms.jar': [], 'ss.jar': [] },
+            thread: { 'ms.jar': [], 'ss.jar': [] }
+        };
 
+        // --- WebSocket Connection ---
         const ws = new WebSocket(`ws://${location.host}`);
 
         ws.onopen = () => {
@@ -526,73 +493,65 @@
                 return;
             }
 
-            // Server Info (multiple processes)
+            // --- Update Text Info ---
+            updateTextInfo(data);
+
+            // --- Update Chart Data ---
+            const currentTime = new Date().toLocaleTimeString();
+            timeHistory.push(currentTime);
+            if (timeHistory.length > MAX_DATA_POINTS) timeHistory.shift();
+
+            // Connection Data
+            const establishedCount = data.networkStatus.estab || 0;
+            chartData.connection.push(establishedCount);
+            if (chartData.connection.length > MAX_DATA_POINTS) chartData.connection.shift();
+
+            // Process-specific Data (Heap & Threads)
             const processes = Array.isArray(data.processes) ? data.processes : [];
-            let serverInfoHtml = `
-                <div class="metric">
-                    <span>타임스탬프</span>
-                    <span class="metric-value">${data.timestamp}</span>
-                </div>`;
+            ['ms.jar', 'ss.jar'].forEach(target => {
+                const processData = processes.find(p => p.target === target);
+                const heapValue = processData?.heapUsage?.summary?.heapUtilization ?? null;
+                const threadValue = processData?.threadCount ? parseInt(processData.threadCount) : null;
+
+                chartData.heap[target].push(heapValue);
+                chartData.thread[target].push(threadValue);
+
+                if (chartData.heap[target].length > MAX_DATA_POINTS) chartData.heap[target].shift();
+                if (chartData.thread[target].length > MAX_DATA_POINTS) chartData.thread[target].shift();
+            });
+
+            // --- Update Charts ---
+            updateConnectionChart();
+            updateProcessCharts();
+        };
+
+        function updateTextInfo(data) {
+            // Server Info
+            const processes = Array.isArray(data.processes) ? data.processes : [];
+            let serverInfoHtml = `<div class="metric"><span>타임스탬프</span><span class="metric-value">${data.timestamp}</span></div>`;
             if (processes.length === 0) {
-                serverInfoHtml += `
-                <div class="metric">
-                    <span>프로세스</span>
-                    <span class="metric-value">없음</span>
-                </div>`;
+                serverInfoHtml += `<div class="metric"><span>프로세스</span><span class="metric-value">없음</span></div>`;
             } else {
                 processes.forEach(p => {
                     serverInfoHtml += `
-                    <div class="metric">
-                        <span>${p.target} PID</span>
-                        <span class="metric-value">${p.pid}</span>
-                    </div>
-                    <div class="metric">
-                        <span>${p.target} 스레드 수</span>
-                        <span class="metric-value">${p.threadCount ?? '-'}</span>
-                    </div>`;
+                    <div class="metric"><span>${p.target} PID</span><span class="metric-value">${p.pid}</span></div>
+                    <div class="metric"><span>${p.target} 스레드 수</span><span class="metric-value">${p.threadCount ?? '-'}</span></div>`;
                 });
             }
             serverInfoEl.innerHTML = serverInfoHtml;
 
-            // Heap Usage (multiple processes)
+            // Heap Usage
             let heapHtml = '';
             if (processes.length > 0) {
                 processes.forEach(p => {
                     const heapData = p.heapUsage;
                     if (heapData && heapData.summary) {
-                        heapHtml += `
-                        <div style="margin-bottom:12px;">
-                            <div class="metric">
-                                <span>${p.target} 총 힙 사용량</span>
-                                <span class="metric-value">${heapData.summary.totalHeapUsed}MB / ${heapData.summary.totalHeapCapacity}MB</span>
-                            </div>
-                            <div class="metric">
-                                <span>${p.target} 힙 사용률</span>
-                                <span class="metric-value">${heapData.summary.heapUtilization}%</span>
-                            </div>
-                            <div class="metric">
-                                <span>${p.target} Young Gen</span>
-                                <span class="metric-value">${heapData.summary.youngGenUtilization}%</span>
-                            </div>
-                            <div class="metric">
-                                <span>${p.target} Old Gen</span>
-                                <span class="metric-value">${heapData.summary.oldGenUtilization}%</span>
-                            </div>
-                            <div class="metric">
-                                <span>${p.target} Metaspace</span>
-                                <span class="metric-value">${heapData.summary.metaspaceUtilization}%</span>
-                            </div>
-                            <div class="metric">
-                                <span>${p.target} 총 GC 횟수</span>
-                                <span class="metric-value">${heapData.summary.totalGcCount}</span>
-                            </div>
-                            <div class="metric">
-                                <span>${p.target} 총 GC 시간</span>
-                                <span class="metric-value">${heapData.summary.totalGcTime}초</span>
-                            </div>
+                        heapHtml += `<div style="margin-bottom:12px;">
+                            <div class="metric"><span>${p.target} 총 힙 사용량</span><span class="metric-value">${heapData.summary.totalHeapUsed}MB / ${heapData.summary.totalHeapCapacity}MB</span></div>
+                            <div class="metric"><span>${p.target} 힙 사용률</span><span class="metric-value">${heapData.summary.heapUtilization}%</span></div>
                         </div>`;
                     } else {
-                        heapHtml += `<div class="heap-display">${typeof p.heapUsage === 'string' ? p.heapUsage : JSON.stringify(p.heapUsage, null, 2)}</div>`;
+                        heapHtml += `<div class="heap-display">${p.target}: 데이터를 가져올 수 없습니다.</div>`;
                     }
                 });
             } else {
@@ -603,47 +562,9 @@
             // Network Status
             if (data.networkStatus) {
                 networkStatusEl.innerHTML = `
-                    <div class="metric">
-                        <span>Established</span>
-                        <span class="metric-value">${data.networkStatus.estab || 0}</span>
-                    </div>
-                    <div class="metric">
-                        <span>Time Wait</span>
-                        <span class="metric-value">${data.networkStatus.time_wait || data.networkStatus.timewait || 0}</span>
-                    </div>
-                    <div class="metric">
-                        <span>Close Wait</span>
-                        <span class="metric-value">${data.networkStatus.close_wait || 0}</span>
-                    </div>
-                    <div class="metric">
-                        <span>Closed</span>
-                        <span class="metric-value">${data.networkStatus.closed || 0}</span>
-                    </div>
-                    <div class="metric">
-                        <span>Orphaned</span>
-                        <span class="metric-value">${data.networkStatus.orphaned || 0}</span>
-                    </div>`;
-
-                // 차트 데이터 업데이트
-                const currentTime = new Date().toLocaleTimeString();
-                const establishedCount = data.networkStatus.estab || 0;
-                
-                // 데이터 히스토리에 추가
-                connectionHistory.push({
-                    time: currentTime,
-                    established: establishedCount
-                });
-
-                // 최대 데이터 포인트 수 유지
-                if (connectionHistory.length > MAX_DATA_POINTS) {
-                    connectionHistory.shift();
-                }
-
-                // 차트 업데이트
-                connectionChart.data.labels = connectionHistory.map(item => item.time);
-                connectionChart.data.datasets[0].data = connectionHistory.map(item => item.established);
-                connectionChart.update('none'); // 애니메이션 없이 업데이트
-
+                    <div class="metric"><span>Established</span><span class="metric-value">${data.networkStatus.estab || 0}</span></div>
+                    <div class="metric"><span>Time Wait</span><span class="metric-value">${data.networkStatus.time_wait || data.networkStatus.timewait || 0}</span></div>
+                    <div class="metric"><span>Close Wait</span><span class="metric-value">${data.networkStatus.close_wait || 0}</span></div>`;
             } else {
                 networkStatusEl.innerHTML = '<p>네트워크 상태 정보가 없습니다.</p>';
             }
@@ -659,29 +580,75 @@
             }
             summaryHtml += '</tbody></table>';
             connectionSummaryEl.innerHTML = summaryHtml;
-        };
+        }
+
+        function updateConnectionChart() {
+            if (connectionChart.data.datasets.length === 0) {
+                connectionChart.data.datasets.push({
+                    label: 'Established Connections',
+                    data: [],
+                    borderColor: '#45b7d1',
+                    backgroundColor: 'rgba(69, 183, 209, 0.1)',
+                    borderWidth: 3, fill: true, tension: 0.4
+                });
+            }
+            connectionChart.data.labels = timeHistory;
+            connectionChart.data.datasets[0].data = chartData.connection;
+            connectionChart.update('none');
+        }
+
+        function updateProcessCharts() {
+            const colors = { 'ms.jar': '#ff6b6b', 'ss.jar': '#4ecdc4' };
+            
+            // Update Heap Chart
+            heapChart.data.labels = timeHistory;
+            ['ms.jar', 'ss.jar'].forEach(target => {
+                let dataset = heapChart.data.datasets.find(ds => ds.label === target);
+                if (!dataset) {
+                    dataset = {
+                        label: target,
+                        data: [],
+                        borderColor: colors[target],
+                        backgroundColor: `${colors[target]}1A`, // Add alpha
+                        borderWidth: 3, fill: true, tension: 0.4
+                    };
+                    heapChart.data.datasets.push(dataset);
+                }
+                dataset.data = chartData.heap[target];
+            });
+            heapChart.update('none');
+
+            // Update Thread Chart
+            threadChart.data.labels = timeHistory;
+            ['ms.jar', 'ss.jar'].forEach(target => {
+                let dataset = threadChart.data.datasets.find(ds => ds.label === target);
+                if (!dataset) {
+                    dataset = {
+                        label: target,
+                        data: [],
+                        borderColor: colors[target],
+                        backgroundColor: `${colors[target]}1A`,
+                        borderWidth: 3, fill: true, tension: 0.4
+                    };
+                    threadChart.data.datasets.push(dataset);
+                }
+                dataset.data = chartData.thread[target];
+            });
+            threadChart.update('none');
+        }
 
         ws.onclose = () => {
             console.log('Disconnected from WebSocket server');
             connectionStatusEl.className = 'status-indicator disconnected';
             connectionStatusEl.innerHTML = '<strong>🔴 연결 끊김:</strong> 페이지를 새로고침 해주세요.';
-            
-            [serverInfoEl, heapUsageEl, networkStatusEl, connectionSummaryEl].forEach(el => {
-                el.innerHTML = '<p style="color: #e74c3c; font-weight: 600;">❌ 연결이 끊어졌습니다. 새로고침 해주세요.</p>';
-            });
         };
 
         ws.onerror = (error) => {
             console.error('WebSocket Error:', error);
             connectionStatusEl.className = 'status-indicator disconnected';
             connectionStatusEl.innerHTML = '<strong>⚠️ 연결 오류:</strong> 서버 연결에 실패했습니다.';
-            
-            [serverInfoEl, heapUsageEl, networkStatusEl, connectionSummaryEl].forEach(el => {
-                el.innerHTML = '<p style="color: #e74c3c; font-weight: 600;">❌ 연결 오류가 발생했습니다.</p>';
-            });
         };
 
-        // 페이지 로드 시 애니메이션 효과
         document.addEventListener('DOMContentLoaded', function() {
             const cards = document.querySelectorAll('.card');
             cards.forEach((card, index) => {
