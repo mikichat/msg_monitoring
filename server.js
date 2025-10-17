@@ -47,8 +47,8 @@ async function getMonitoringData() {
   const targets = ['ms.jar', 'ss.jar'];
   const foundProcesses = [];
 
+  // 먼저 모든 PID를 찾습니다
   for (const target of targets) {
-    let pid = null;
     try {
       if (isWindows) {
         const { stdout } = await execPromise(
@@ -57,94 +57,101 @@ async function getMonitoringData() {
         const pids = stdout && stdout.match(/\d+/g);
         if (pids) {
           for (const p of pids) {
-            if (p !== '0') foundProcesses.push({ pid: p, target: target });
+            if (p !== '0') {
+              foundProcesses.push({ pid: p, target: target });
+            }
           }
         }
       } else {
         const { stdout } = await execPromise(`pgrep -f "java.*-jar /.*\\/${target}( |$)" | grep -v "bs_bms.jar"`);
         const pids = stdout && stdout.trim().split('\n').filter(Boolean);
-        if (pids) pids.forEach(p => foundProcesses.push({ pid: p, target: target }));
+        if (pids && pids.length > 0) {
+          pids.forEach(p => foundProcesses.push({ pid: p, target: target }));
+        }
       }
     } catch (e) {
+      console.log(`Could not find ${target}:`, e.message);
       // ignore and continue to next target
-    }
-
-  for (const processInfo of foundProcesses) {
-    const pid = processInfo.pid;
-    const target = processInfo.target;
-
-      // 2. Get Thread Count for this PID
-    const threadCountCommand = isWindows
-      ? `wmic process where processid=${pid} get ThreadCount`
-      : `cat /proc/${pid}/status | grep Threads | awk '{print $2}'`;
-    const { stdout: threadStdout } = await execPromise(threadCountCommand);
-    const threadMatch = threadStdout.match(/\d+/g);
-    const threadCount = threadMatch ? (isWindows ? threadMatch[1] : threadMatch[0]) : undefined;
-
-    // 3. Get Heap Usage for this PID
-    const { stdout: heapStdout } = await execPromise(`jstat -gc ${pid}`);
-    const heapLines = heapStdout.trim().split('\n');
-    const heapData = heapLines[heapLines.length - 1].trim();
-    const heapValues = heapData.split(/\s+/);
-    const heapUsage = {
-      raw: heapData,
-      parsed: {
-        youngGen: {
-          s0c: parseFloat(heapValues[0]) || 0,
-          s1c: parseFloat(heapValues[1]) || 0,
-          s0u: parseFloat(heapValues[2]) || 0,
-          s1u: parseFloat(heapValues[3]) || 0,
-          ec: parseFloat(heapValues[4]) || 0,
-          eu: parseFloat(heapValues[5]) || 0,
-        },
-        oldGen: {
-          oc: parseFloat(heapValues[6]) || 0,
-          ou: parseFloat(heapValues[7]) || 0,
-        },
-        metaspace: {
-          mc: parseFloat(heapValues[8]) || 0,
-          mu: parseFloat(heapValues[9]) || 0,
-        },
-        gc: {
-          ygc: parseInt(heapValues[12]) || 0,
-          ygct: parseFloat(heapValues[13]) || 0,
-          fgc: parseInt(heapValues[14]) || 0,
-          fgct: parseFloat(heapValues[15]) || 0,
-          gct: parseFloat(heapValues[16]) || 0
-        }
-      },
-      summary: {
-        totalHeapCapacity: Math.round(((parseFloat(heapValues[4]) || 0) + (parseFloat(heapValues[6]) || 0)) / 1024),
-        totalHeapUsed: Math.round(((parseFloat(heapValues[5]) || 0) + (parseFloat(heapValues[7]) || 0)) / 1024),
-        heapUtilization: Math.round(((parseFloat(heapValues[5]) || 0) + (parseFloat(heapValues[7]) || 0)) / ((parseFloat(heapValues[4]) || 0) + (parseFloat(heapValues[6]) || 0)) * 100),
-        youngGenUtilization: Math.round((parseFloat(heapValues[5]) || 0) / (parseFloat(heapValues[4]) || 1) * 100),
-        oldGenUtilization: Math.round((parseFloat(heapValues[7]) || 0) / (parseFloat(heapValues[6]) || 1) * 100),
-        metaspaceUtilization: Math.round((parseFloat(heapValues[9]) || 0) / (parseFloat(heapValues[8]) || 1) * 100),
-        totalGcCount: (parseInt(heapValues[12]) || 0) + (parseInt(heapValues[14]) || 0),
-        totalGcTime: Math.round((parseFloat(heapValues[16]) || 0) * 1000) / 1000
-      }
-    };
-
-    foundProcesses.push({ target: `${target}-${pid}`, pid, threadCount, heapUsage });
     }
   }
 
   if (foundProcesses.length === 0) {
     throw new Error('Target Java processes not found. (ms.jar, ss.jar)');
   }
-  data.processes = foundProcesses;
 
-  // 각 프로세스의 데이터를 개별 필드로 추가
-  data.msJarProcesses = [];
-  data.ssJarProcesses = [];
-  foundProcesses.forEach(p => {
-    if (p.target.startsWith('ms.jar')) {
-      data.msJarProcesses.push({ pid: p.pid, threadCount: p.threadCount, heapUsage: p.heapUsage });
-    } else if (p.target.startsWith('ss.jar')) {
-      data.ssJarProcesses.push({ pid: p.pid, threadCount: p.threadCount, heapUsage: p.heapUsage });
+  // 2. 각 프로세스의 상세 정보를 수집합니다
+  const detailedProcesses = [];
+  for (const processInfo of foundProcesses) {
+    const pid = processInfo.pid;
+    const target = processInfo.target;
+
+    try {
+      // Get Thread Count for this PID
+      const threadCountCommand = isWindows
+        ? `wmic process where processid=${pid} get ThreadCount`
+        : `cat /proc/${pid}/status | grep Threads | awk '{print $2}'`;
+      const { stdout: threadStdout } = await execPromise(threadCountCommand);
+      const threadMatch = threadStdout.match(/\d+/g);
+      const threadCount = threadMatch ? (isWindows ? threadMatch[1] : threadMatch[0]) : undefined;
+
+      // Get Heap Usage for this PID
+      const { stdout: heapStdout } = await execPromise(`jstat -gc ${pid}`);
+      const heapLines = heapStdout.trim().split('\n');
+      const heapData = heapLines[heapLines.length - 1].trim();
+      const heapValues = heapData.split(/\s+/);
+      
+      const heapUsage = {
+        raw: heapData,
+        parsed: {
+          youngGen: {
+            s0c: parseFloat(heapValues[0]) || 0,
+            s1c: parseFloat(heapValues[1]) || 0,
+            s0u: parseFloat(heapValues[2]) || 0,
+            s1u: parseFloat(heapValues[3]) || 0,
+            ec: parseFloat(heapValues[4]) || 0,
+            eu: parseFloat(heapValues[5]) || 0,
+          },
+          oldGen: {
+            oc: parseFloat(heapValues[6]) || 0,
+            ou: parseFloat(heapValues[7]) || 0,
+          },
+          metaspace: {
+            mc: parseFloat(heapValues[8]) || 0,
+            mu: parseFloat(heapValues[9]) || 0,
+          },
+          gc: {
+            ygc: parseInt(heapValues[12]) || 0,
+            ygct: parseFloat(heapValues[13]) || 0,
+            fgc: parseInt(heapValues[14]) || 0,
+            fgct: parseFloat(heapValues[15]) || 0,
+            gct: parseFloat(heapValues[16]) || 0
+          }
+        },
+        summary: {
+          totalHeapCapacity: Math.round(((parseFloat(heapValues[4]) || 0) + (parseFloat(heapValues[6]) || 0)) / 1024),
+          totalHeapUsed: Math.round(((parseFloat(heapValues[5]) || 0) + (parseFloat(heapValues[7]) || 0)) / 1024),
+          heapUtilization: Math.round(((parseFloat(heapValues[5]) || 0) + (parseFloat(heapValues[7]) || 0)) / ((parseFloat(heapValues[4]) || 0) + (parseFloat(heapValues[6]) || 0)) * 100),
+          youngGenUtilization: Math.round((parseFloat(heapValues[5]) || 0) / (parseFloat(heapValues[4]) || 1) * 100),
+          oldGenUtilization: Math.round((parseFloat(heapValues[7]) || 0) / (parseFloat(heapValues[6]) || 1) * 100),
+          metaspaceUtilization: Math.round((parseFloat(heapValues[9]) || 0) / (parseFloat(heapValues[8]) || 1) * 100),
+          totalGcCount: (parseInt(heapValues[12]) || 0) + (parseInt(heapValues[14]) || 0),
+          totalGcTime: Math.round((parseFloat(heapValues[16]) || 0) * 1000) / 1000
+        }
+      };
+
+      detailedProcesses.push({ 
+        target: target, 
+        pid, 
+        threadCount, 
+        heapUsage 
+      });
+    } catch (error) {
+      console.error(`Error getting details for ${target} (PID ${pid}):`, error.message);
+      // 해당 프로세스는 건너뜁니다
     }
-  });
-  // 기존 단일 필드는 제거 (클라이언트에서 data.processes 또는 새로 추가된 필드를 사용하도록 유도)
+  }
+
+  data.processes = detailedProcesses;
 
   // 4. Get Network Info
   if (isWindows) {
