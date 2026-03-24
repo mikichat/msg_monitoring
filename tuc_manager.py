@@ -82,9 +82,15 @@ MONITOR_TARGETS = ["ms.jar", "ss.jar"]   # JVM 모니터링 대상
 #  유틸리티
 # ══════════════════════════════════════════════════════════════════════════════
 def run(cmd: str, timeout: int = 10) -> Tuple[int, str, str]:
-    """명령어 실행 → (returncode, stdout, stderr)"""
+    """명령어 실행 → (returncode, stdout, stderr) — Python 3.6 호환"""
     try:
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(
+            cmd, shell=True,
+            stdout=subprocess.PIPE,   # capture_output=True 는 3.7+ 전용
+            stderr=subprocess.PIPE,
+            universal_newlines=True,  # text=True 는 3.7+ 전용
+            timeout=timeout,
+        )
         return r.returncode, r.stdout.strip(), r.stderr.strip()
     except subprocess.TimeoutExpired:
         return -1, "", "TIMEOUT"
@@ -92,11 +98,17 @@ def run(cmd: str, timeout: int = 10) -> Tuple[int, str, str]:
         return -1, "", str(e)
 
 def get_pid(jar_path: str) -> Optional[str]:
-    """JAR 경로로 PID 조회"""
-    _, out, _ = run(f"ps -ef | grep '{jar_path}' | grep -v grep | awk '{{print $2}}'")
+    """JAR 경로로 PID 조회 — 전체경로 우선, 파일명 폴백"""
+    # 1차: 전체 경로로 탐색
+    fname = os.path.basename(jar_path)
+    _, out, _ = run(f"ps -ef | grep 'java' | grep '{fname}' | grep -v grep | awk '{{print $2}}'")
     pids = [p for p in out.split() if p.isdigit()]
-    return pids[0] if pids else None
-
+    if pids:
+        return pids[0]
+    # 2차: 전체 경로로 재탐색 (경로 포함 실행 케이스)
+    _, out2, _ = run(f"ps -ef | grep '{jar_path}' | grep -v grep | awk '{{print $2}}'")
+    pids2 = [p for p in out2.split() if p.isdigit()]
+    return pids2[0] if pids2 else None
 def get_tomcat_pid(tomcat_path: str) -> Optional[str]:
     """Tomcat PID 조회 (jps 사용)"""
     _, out, _ = run(f"jps -v 2>/dev/null | grep Bootstrap | grep '{tomcat_path}/conf'")
@@ -454,52 +466,180 @@ def build_jvm_panel(name: str, jar: str) -> Panel:
 
     return Panel(table, title=f"[bold cyan]{name}[/] [dim]({jar.split('/')[-1]})[/]", border_style="cyan")
 
+def _try_cmds(cmds, timeout=5):
+    """명령어 목록을 순서대로 시도, 출력 있는 첫 번째 결과 반환"""
+    for cmd in cmds:
+        rc, out, err = run(cmd, timeout=timeout)
+        if out.strip():
+            return out, cmd, ""
+    # 모두 실패 시 마지막 에러 반환
+    return "", cmds[-1], err
+
+def _parse_proc_net_tcp(hex_state_filter=None):
+    """
+    /proc/net/tcp(6) 직접 파싱 — ss/netstat 없어도 동작
+    hex_state_filter: None=모두, {'0A'}=ESTABLISHED 등
+    반환: Dict[ip_str, count]
+    """
+    ip_counts: Dict[str, int] = {}
+    state_counts: Dict[str, int] = {"estab": 0, "time_wait": 0, "close_wait": 0}
+
+    STATE_MAP = {
+        "01": "estab",
+        "06": "time_wait",
+        "08": "close_wait",
+    }
+
+    for fname in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(fname) as f:
+                lines = f.readlines()[1:]  # 헤더 스킵
+        except IOError:
+            continue
+
+        for line in lines:
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            state_hex = parts[3].upper()
+            label = STATE_MAP.get(state_hex)
+            if label:
+                state_counts[label] = state_counts.get(label, 0) + 1
+
+            # ESTAB(01) 만 IP 수집
+            if state_hex != "01":
+                continue
+            remote_field = parts[2]           # hex "ip:port"
+            try:
+                hex_ip, hex_port = remote_field.split(":")
+                if len(hex_ip) == 8:           # IPv4
+                    b = bytes.fromhex(hex_ip)
+                    ip_str = f"{b[3]}.{b[2]}.{b[1]}.{b[0]}"
+                elif len(hex_ip) == 32:        # IPv6
+                    # 표시만 간략화
+                    ip_str = ":".join(
+                        hex_ip[i:i+4] for i in range(0, 32, 4)
+                    )
+                else:
+                    continue
+                if ip_str in ("0.0.0.0", "127.0.0.1", "::1"):
+                    continue
+                ip_counts[ip_str] = ip_counts.get(ip_str, 0) + 1
+            except Exception:
+                continue
+
+    return state_counts, ip_counts
+
 def build_network_panel() -> Panel:
-    _, ss_out, _ = run("ss -s 2>/dev/null", timeout=5)
-    _, conn_out, _ = run("ss -tan 2>/dev/null | awk 'NR>1{print $1, $5}' | sort | uniq -c | sort -rn | head -20", timeout=5)
+    """네트워크 상태 — ss → netstat → /proc/net/tcp 순으로 폴백"""
 
-    net = {"estab": 0, "time_wait": 0, "close_wait": 0}
-    for line in ss_out.splitlines():
-        m = re.search(r"estab (\d+)", line, re.I)
-        if m: net["estab"] = int(m.group(1))
-        m = re.search(r"timewait (\d+)", line, re.I)
-        if m: net["time_wait"] = int(m.group(1))
-        m = re.search(r"closewait (\d+)", line, re.I)
-        if m: net["close_wait"] = int(m.group(1))
+    net    = {"estab": 0, "time_wait": 0, "close_wait": 0}
+    ip_counts: Dict[str, int] = {}
+    source_label = ""
+    raw_lines: List[str] = []
 
+    # ── 1단계: ss 시도 (경로 여러 개) ─────────────────────────────────────
+    SS_BINS = ["ss", "/usr/sbin/ss", "/sbin/ss", "/bin/ss"]
+    ss_bin = None
+    for b in SS_BINS:
+        rc, out, _ = run(f"{b} -s", timeout=4)
+        if out.strip():
+            ss_bin = b
+            # 요약 파싱
+            for line in out.splitlines():
+                m = re.search(r"estab[\s:]+([\d]+)", line, re.I)
+                if m: net["estab"] = int(m.group(1))
+                m = re.search(r"time.?wait[\s:]+([\d/]+)", line, re.I)
+                if m: net["time_wait"] = int(m.group(1).split("/")[0])
+                m = re.search(r"close.?wait[\s:]+([\d]+)", line, re.I)
+                if m: net["close_wait"] = int(m.group(1))
+            source_label = f"ss ({b})"
+            break
+
+    if ss_bin:
+        # IP 목록은 ss -tan
+        _, tan_out, _ = run(f"{ss_bin} -tan", timeout=5)
+        raw_lines = tan_out.splitlines()[1:]
+        for line in raw_lines:
+            parts = line.split()
+            if len(parts) < 5:
+                continue
+            state = parts[0]
+            if state not in ("ESTAB", "ESTABLISHED", "TIME-WAIT", "TIMEWAIT", "CLOSE-WAIT"):
+                continue
+            # ss -tan 컬럼: State Recv-Q Send-Q Local Peer
+            peer = parts[4]
+            peer_ip = peer.rsplit(":", 1)[0].strip("[]").replace("::ffff:", "")
+            if peer_ip in ("-", "*", "", "0.0.0.0", "127.0.0.1"):
+                continue
+            ip_counts[peer_ip] = ip_counts.get(peer_ip, 0) + 1
+
+    # ── 2단계: netstat 폴백 ────────────────────────────────────────────────
+    if not ss_bin:
+        _, ns_out, ns_err = run("netstat -tan 2>&1", timeout=8)
+        if ns_out.strip() and "command not found" not in ns_out:
+            source_label = "netstat"
+            for line in ns_out.splitlines():
+                parts = line.split()
+                if len(parts) < 6:
+                    continue
+                # netstat -tan: Proto Recv-Q Send-Q Local Foreign State
+                state = parts[5] if len(parts) >= 6 else ""
+                foreign = parts[4] if len(parts) >= 5 else ""
+                if state == "ESTABLISHED":
+                    net["estab"] += 1
+                    peer_ip = foreign.rsplit(":", 1)[0]
+                    if peer_ip not in ("0.0.0.0", "127.0.0.1", "*"):
+                        ip_counts[peer_ip] = ip_counts.get(peer_ip, 0) + 1
+                elif state == "TIME_WAIT":
+                    net["time_wait"] += 1
+                elif state == "CLOSE_WAIT":
+                    net["close_wait"] += 1
+
+    # ── 3단계: /proc/net/tcp 직접 파싱 폴백 ──────────────────────────────
+    if not ss_bin and not ip_counts and net["estab"] == 0:
+        source_label = "/proc/net/tcp"
+        proc_counts, proc_ips = _parse_proc_net_tcp()
+        net.update(proc_counts)
+        ip_counts = proc_ips
+
+    # ── 연결 상태 테이블 ──────────────────────────────────────────────────
     conn_table = Table(box=box.SIMPLE, show_header=True, header_style="bold cyan",
                        title="[bold]연결 상태[/]", padding=(0, 1))
-    conn_table.add_column("상태",   width=12)
-    conn_table.add_column("COUNT",  justify="right", width=8)
+    conn_table.add_column("상태",  width=14)
+    conn_table.add_column("COUNT", justify="right", width=8)
 
     e_color = "green" if net["estab"] < 1000 else ("yellow" if net["estab"] < 5000 else "red")
-    conn_table.add_row(Text("Established", style="bold"), Text(str(net["estab"]), style=f"bold {e_color}"))
-    conn_table.add_row(Text("Time Wait",   style="dim"),  Text(str(net["time_wait"]),  style="yellow"))
-    conn_table.add_row(Text("Close Wait",  style="dim"),  Text(str(net["close_wait"]), style="red"))
+    conn_table.add_row(Text("Established", style="bold"),
+                       Text(str(net["estab"]),      style=f"bold {e_color}"))
+    conn_table.add_row(Text("Time Wait",   style="dim"),
+                       Text(str(net["time_wait"]),  style="yellow"))
+    conn_table.add_row(Text("Close Wait",  style="dim"),
+                       Text(str(net["close_wait"]), style="red"))
 
+    # ── Peer IP 테이블 ────────────────────────────────────────────────────
     ip_table = Table(box=box.SIMPLE, show_header=True, header_style="bold cyan",
-                     title="[bold]IP 연결 Top[/]", padding=(0, 1))
-    ip_table.add_column("IP", width=22)
+                     title="[bold]Peer IP Top 10[/]", padding=(0, 1))
+    ip_table.add_column("IP",  width=24)
     ip_table.add_column("Cnt", justify="right", width=6)
 
-    ip_counts: Dict[str, int] = {}
-    for line in conn_out.splitlines():
-        parts = line.strip().split()
-        if len(parts) >= 3:
-            ip_addr = parts[2]
-            cnt = int(parts[0])
-            if cnt >= 2:
-                ip_counts[ip_addr] = ip_counts.get(ip_addr, 0) + cnt
+    top_ips = sorted(ip_counts.items(), key=lambda x: -x[1])[:10]
+    if top_ips:
+        for ip, cnt in top_ips:
+            color = "red" if cnt >= 100 else ("yellow" if cnt >= 30 else "cyan")
+            ip_table.add_row(ip, Text(str(cnt), style=f"bold {color}"))
+    else:
+        ip_table.add_row("[dim]활성 외부 연결 없음[/]", "")
 
-    for ip, cnt in sorted(ip_counts.items(), key=lambda x: -x[1])[:10]:
-        ip_table.add_row(ip, Text(str(cnt), style="cyan"))
-
-    if not ip_counts:
-        ip_table.add_row("[dim]연결 없음[/]", "")
-
-    from rich.columns import Columns
     content = Columns([conn_table, ip_table], equal=False, expand=False)
-    return Panel(content, title="[bold cyan]Network Monitor[/]", border_style="cyan")
+    subtitle = (
+        f"[dim cyan]data: {source_label}  ·  {now_str()}[/]"
+        if source_label else
+        f"[yellow]명령어 없음 — /proc/net/tcp 파싱 사용[/]"
+    )
+    return Panel(content, title="[bold cyan]Network Monitor[/]",
+                 subtitle=subtitle, border_style="cyan")
+
 
 def monitor_live():
     """실시간 JVM + 네트워크 모니터링 (Ctrl+C 종료)"""
@@ -641,11 +781,12 @@ def log_viewer():
         console.print("[dim]종료: Ctrl+C[/]\n")
 
         if follow:
+            proc = None
             try:
                 proc = subprocess.Popen(
                     ["tail", f"-n{n}", "-f", fpath],
                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                    text=True, bufsize=1,
+                    universal_newlines=True, bufsize=1,
                 )
                 for line in proc.stdout:
                     # 로그 레벨 색상
@@ -660,6 +801,7 @@ def log_viewer():
             except KeyboardInterrupt:
                 if proc:
                     proc.terminate()
+                    proc.wait()
         else:
             rc, out, _ = run(f"tail -n {n} '{fpath}'", timeout=15)
             for line in out.splitlines():
